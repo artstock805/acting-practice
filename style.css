@@ -61,6 +61,15 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .cast tr.is-mine { background: color-mix(in srgb, var(--mine) 14%, transparent); }
 .cast input[type=text], .cast select, .options select { background: var(--stage); color: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 8px; max-width: 100%; }
 .cast input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--mine); }
+/* 인물별 목소리 설정 */
+.voice-bar { margin: 0 0 12px; }
+.voice-box { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; align-items: center; }
+.voice-box .slider { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--muted); }
+.voice-box .slider input { flex: 1; min-width: 60px; accent-color: var(--spot); }
+.voice-box .slider span { width: 2.6em; text-align: right; color: var(--paper); font-variant-numeric: tabular-nums; }
+.voice-box .clash { grid-column: 1 / -1; color: var(--spot); font-size: 0.82rem; }
+.cast tr.has-clash { box-shadow: inset 3px 0 0 var(--spot); }
+.cast tr.is-mine .voice-box { opacity: 0.45; }
 .options { border: 1px solid var(--line); border-radius: var(--radius-lg); margin-top: 20px; padding: 16px 20px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .options legend { color: var(--spot); padding: 0 6px; }
 .options label { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -122,18 +131,19 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 
   .cast thead { display: none; }
   .cast, .cast tbody { display: block; background: none; }
-  .cast tr { display: grid; grid-template-columns: 36px 1fr 1fr 48px; gap: 8px; align-items: center; padding: 12px;
+  .cast tr { display: grid; grid-template-columns: 36px 1fr 48px; gap: 8px; align-items: center; padding: 12px;
     margin-bottom: 10px; background: var(--stage-2); border-radius: var(--radius-lg); }
   .cast td { padding: 0; border: 0; min-width: 0; }
   .cast td:nth-child(1) { grid-column: 1; grid-row: 1; }
-  .cast td:nth-child(2) { grid-column: 2 / 4; grid-row: 1; }
+  .cast td:nth-child(2) { grid-column: 2; grid-row: 1; }
   .cast td:nth-child(3) { display: none; }
-  .cast td:nth-child(4) { grid-column: 1 / 3; grid-row: 2; }
-  .cast td:nth-child(5) { grid-column: 3 / 5; grid-row: 2; }
-  .cast td:nth-child(6) { grid-column: 4; grid-row: 1; }
+  .cast td:nth-child(4) { grid-column: 1 / -1; grid-row: 2; }
+  .cast td:nth-child(5) { grid-column: 3; grid-row: 1; }
+  .voice-box { grid-template-columns: 1fr 1fr; }
+  .voice-box .slider { grid-column: 1 / -1; }
   .cast input[type=text], .cast select { width: 100%; }
   .cast input[type=checkbox] { width: 26px; height: 26px; }
-  .cast td:nth-child(6) .ghost { width: 100%; padding: 0; }
+  .cast td:nth-child(5) .ghost { width: 100%; padding: 0; }
   .options { grid-template-columns: 1fr; }
 
   .stage { aspect-ratio: 16 / 11; }

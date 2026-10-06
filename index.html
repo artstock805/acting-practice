@@ -44,8 +44,13 @@
     <!-- 2. 배역 설정 -->
     <section id="view-cast" class="view">
       <p class="help">내가 연기할 역할을 체크하세요. 나머지 역할은 앱이 읽어 줍니다. 이름을 고치면 같은 이름끼리 합쳐집니다(예: "민수"와 "민수(V.O.)" 통합).</p>
+      <div class="row voice-bar">
+        <span id="voice-count" class="note"></span>
+        <span class="spacer"></span>
+        <button id="btn-auto-voices" class="ghost" title="상대 배역들이 서로 다른 목소리를 갖도록 다시 배분">🎲 목소리 자동 배분</button>
+      </div>
       <table class="cast">
-        <thead><tr><th>내 역할</th><th>인물</th><th>대사 수</th><th>목소리 성격</th><th>음성</th><th></th></tr></thead>
+        <thead><tr><th>내 역할</th><th>인물</th><th>대사 수</th><th>목소리 (바꾸면 바로 들려줌)</th><th></th></tr></thead>
         <tbody id="cast-body"></tbody>
       </table>
       <fieldset class="options">
@@ -102,6 +107,7 @@
 
   <script src="parser.js"></script>
   <script src="sample.js"></script>
+  <script src="voices.js"></script>
   <script src="speech.js"></script>
   <script src="recorder.js"></script>
   <script src="app.js"></script>

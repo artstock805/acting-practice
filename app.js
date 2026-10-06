@@ -5,7 +5,8 @@
   const S = window.Speech;
   const R = window.Recorder;
   const STORE_KEY = 'acting-practice-v1';
-  const AUTO_PITCH = [1, 0.85, 1.2, 0.95, 1.1, 0.75, 1.3];  // '자동'일 때 인물끼리 목소리가 구분되도록
+  const V = window.VoiceKit;
+  const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const NARRATOR = '__narrator__';
   const $ = (id) => document.getElementById(id);
 
@@ -44,7 +45,11 @@
     const chars = K.listCharacters(items);
     if (!chars.length) { alert('인물 대사를 찾지 못했습니다. "이름: 대사" 형식인지 확인해 주세요.'); return; }
     const cast = {};
-    chars.forEach((c, i) => { cast[c.name] = state.cast[c.name] || { mine: i === 0 && !myNames().length, persona: 'auto', voiceURI: '', slot: i }; });
+    chars.forEach((c, i) => { cast[c.name] = state.cast[c.name] || { mine: i === 0 && !myNames().length, isNew: true }; });
+    // 새로 나온 상대 배역에게는 서로 다른 목소리를 자동 배분 (기존 인물 설정은 유지)
+    const newOthers = chars.map((c) => c.name).filter((n) => cast[n].isNew && !cast[n].mine);
+    const assigned = V.distributeVoices(newOthers, availableVoiceURIs());
+    Object.keys(cast).forEach((n) => { const { isNew, ...rest } = cast[n]; cast[n] = { ...rest, ...(assigned[n] || {}) }; });
     update({ text, items, cast, index: 0, results: {} });
     renderCast();
     enableTabs();
@@ -54,14 +59,18 @@
   // ---------- 2. 배역 ----------
   function myNames() { return Object.keys(state.cast).filter((n) => state.cast[n].mine); }
 
+  function availableVoiceURIs() { return S.getKoreanVoices().map((v) => v.voiceURI); }
+
   function renderCast() {
     const voices = S.getKoreanVoices();
+    const clashes = V.findVoiceClashes(state.cast);
     const body = $('cast-body');
     body.textContent = '';
     K.listCharacters(state.items).forEach(({ name, lines }) => {
       const cfg = state.cast[name];
       const tr = document.createElement('tr');
       tr.classList.toggle('is-mine', cfg.mine);
+      tr.classList.toggle('has-clash', clashes.has(name));
 
       const mine = el('input', { type: 'checkbox', checked: cfg.mine, title: '내가 연기할 역할' });
       mine.onchange = () => setCast(name, { mine: mine.checked });
@@ -69,28 +78,71 @@
       const nameInput = el('input', { type: 'text', value: name, size: 10 });
       nameInput.onchange = () => renameChar(name, nameInput.value.trim());
 
-      const persona = el('select');
-      Object.entries(S.PERSONAS).filter(([k]) => k !== 'narrator')
-        .forEach(([k, p]) => persona.append(el('option', { value: k, textContent: p.label, selected: cfg.persona === k })));
-      persona.onchange = () => setCast(name, { persona: persona.value });
-
-      const voice = el('select');
-      voice.append(el('option', { value: '', textContent: '기본 음성' }));
-      voices.forEach((v) => voice.append(el('option', { value: v.voiceURI, textContent: v.name, selected: cfg.voiceURI === v.voiceURI })));
-      voice.onchange = () => setCast(name, { voiceURI: voice.value });
-
       const preview = el('button', { className: 'ghost', textContent: '🔊', title: '미리 듣기' });
-      const sampleLine = state.items.find((i) => i.type === 'line' && i.character === name);
-      preview.onclick = () => S.speak(sampleLine ? sampleLine.text : name, voiceCfg(name, sampleLine));
+      preview.onclick = () => previewVoice(name);
 
-      [mine, nameInput, persona, voice].forEach((n, i) => {
-        const td = el('td'); td.append(n);
-        tr.append(td);
-        if (i === 1) tr.append(el('td', { textContent: String(lines) }));
-      });
-      const td = el('td'); td.append(preview); tr.append(td);
+      const cells = [mine, nameInput, document.createTextNode(String(lines)), voiceControls(name, cfg, voices, clashes.has(name)), preview];
+      cells.forEach((n) => { const td = el('td'); td.append(n); tr.append(td); });
       body.append(tr);
     });
+    $('voice-count').textContent = voices.length > 1
+      ? `이 브라우저의 한국어 음성 ${voices.length}개를 나눠 씁니다.`
+      : '이 브라우저에는 한국어 음성이 1개뿐이라 높낮이·속도로 구분합니다. Edge에서 열면 음성이 더 많습니다.';
+  }
+
+  // 인물 한 명의 목소리 설정: 성격 프리셋 · 음성 · 높낮이 · 속도
+  function voiceControls(name, cfg, voices, isClash) {
+    const v = V.resolveVoice(cfg);
+    const box = el('div', { className: 'voice-box' });
+
+    const preset = el('select', { title: '목소리 성격' });
+    const current = V.matchPreset(cfg);
+    preset.append(el('option', { value: 'custom', textContent: '직접 조절', selected: current === 'custom' }));
+    Object.entries(V.PRESETS).forEach(([k, p]) => preset.append(el('option', { value: k, textContent: p.label, selected: current === k })));
+    preset.onchange = () => {
+      if (preset.value === 'custom') return;
+      const p = V.PRESETS[preset.value];
+      changeVoice(name, { persona: preset.value, pitch: p.pitch, rateScale: p.rateScale });
+    };
+
+    const voice = el('select', { title: '음성' });
+    voice.append(el('option', { value: '', textContent: '기본 음성', selected: !v.voiceURI }));
+    voices.forEach((x) => voice.append(el('option', { value: x.voiceURI, textContent: V.shortVoiceName(x.name), selected: v.voiceURI === x.voiceURI })));
+    voice.onchange = () => changeVoice(name, { voiceURI: voice.value });
+
+    box.append(preset, voice,
+      slider('높낮이', 0.5, 2, 0.05, v.pitch, (val) => changeVoice(name, { pitch: val, persona: 'custom' })),
+      slider('속도', 0.6, 1.5, 0.05, v.rateScale, (val) => changeVoice(name, { rateScale: val, persona: 'custom' })));
+    if (isClash) box.append(el('div', { className: 'clash', textContent: '⚠ 다른 상대 배역과 목소리가 거의 같아요' }));
+    return box;
+  }
+
+  function slider(label, min, max, step, value, onCommit) {
+    const wrap = el('label', { className: 'slider' });
+    const out = el('span', { textContent: value.toFixed(2) });
+    const input = el('input', { type: 'range', min, max, step, value });
+    input.oninput = () => { out.textContent = (+input.value).toFixed(2); };
+    input.onchange = () => onCommit(+input.value);
+    wrap.append(label + ' ', input, out);
+    return wrap;
+  }
+
+  function changeVoice(name, patch) {
+    setCast(name, patch);
+    previewVoice(name);
+  }
+
+  function previewVoice(name) {
+    const sampleLine = state.items.find((i) => i.type === 'line' && i.character === name);
+    S.speak(sampleLine ? sampleLine.text : name, voiceCfg(name, null));
+  }
+
+  function autoAssignVoices() {
+    const others = K.listCharacters(state.items).map((c) => c.name).filter((n) => !state.cast[n].mine);
+    const assigned = V.distributeVoices(others, availableVoiceURIs());
+    const cast = Object.fromEntries(Object.entries(state.cast).map(([n, c]) => [n, { ...c, ...(assigned[n] || {}) }]));
+    update({ cast });
+    renderCast();
   }
 
   function setCast(name, patch) {
@@ -110,11 +162,9 @@
   }
 
   function voiceCfg(name, item) {
-    const isNarrator = name === NARRATOR;
-    const cfg = isNarrator ? { persona: 'narrator', voiceURI: '', slot: 0 } : state.cast[name];
+    const v = name === NARRATOR ? NARRATOR_VOICE : V.resolveVoice(state.cast[name]);
     const emotion = item ? K.detectEmotion(item.note) : null;
-    const pitchScale = cfg.persona === 'auto' ? AUTO_PITCH[cfg.slot % AUTO_PITCH.length] : 1;
-    return { voiceURI: cfg.voiceURI, persona: cfg.persona, rate: state.opts.rate, emotionKey: emotion && emotion.key, pitchScale };
+    return { ...v, rate: state.opts.rate, emotionKey: emotion && emotion.key };
   }
 
   function bindOptions() {
@@ -400,6 +450,7 @@
     };
     $('btn-parse').onclick = parseAndGo;
     $('btn-to-practice').onclick = goPractice;
+    $('btn-auto-voices').onclick = autoAssignVoices;
     $('btn-play').onclick = () => {
       S.unlock();  // iOS는 첫 음성을 사용자 터치 안에서 내야 이후 낭독이 허용됨
       if (state.index >= state.items.length) { update({ index: 0, results: {} }); renderTranscript(); return play(); }
