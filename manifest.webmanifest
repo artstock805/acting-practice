@@ -1,0 +1,17 @@
+{
+  "name": "대사 연습 파트너",
+  "short_name": "대사 연습",
+  "description": "대본을 넣으면 상대역을 읽어 주고, 내 대사를 음성 인식으로 채점하는 연기 연습 앱",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#17130f",
+  "theme_color": "#17130f",
+  "lang": "ko",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/acting-practice.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "assets/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

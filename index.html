@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ko" data-app="acting-practice">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#17130f">
+  <meta name="description" content="대본을 넣으면 상대역을 읽어 주고, 내 대사를 음성 인식으로 채점하는 연기 연습 앱">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="대사 연습">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <title>대사 연습 파트너</title>
+  <link rel="icon" href="assets/acting-practice.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <h1>🎭 대사 연습 파트너</h1>
+    <button id="btn-install" class="ghost install" hidden>📲 앱으로 설치</button>
+    <nav>
+      <button data-view="script" class="tab active">1. 대본</button>
+      <button data-view="cast" class="tab" disabled>2. 배역</button>
+      <button data-view="practice" class="tab" disabled>3. 연습</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- 1. 대본 입력 -->
+    <section id="view-script" class="view active">
+      <p class="help">대본을 붙여넣으세요. <b>이름: 대사</b>, <b>이름(지문): 대사</b>, 또는 이름 한 줄 + 대사 한 줄(시나리오식) 형식을 자동으로 인식합니다.
+        <b>S#1</b>, <b>씬 1</b>, <b>INT.</b>로 시작하는 줄은 장면 제목, 괄호 줄은 지문으로 처리합니다.</p>
+      <textarea id="script-input" spellcheck="false" placeholder="S#1. 카페 / 밤&#10;민수: 늦었네.&#10;지연(화가 나서): 미안하다고 했잖아!"></textarea>
+      <div class="row">
+        <button id="btn-sample" class="ghost">예시 대본 불러오기</button>
+        <label class="ghost file-btn">.txt 파일 열기<input id="file-input" type="file" accept=".txt,text/plain" hidden></label>
+        <span class="spacer"></span>
+        <button id="btn-parse" class="primary">대본 분석 →</button>
+      </div>
+      <p class="note">🔒 대본은 이 브라우저 안에만 저장되고 어디로도 전송되지 않습니다. (음성 인식은 브라우저의 음성 서비스를 사용합니다)</p>
+    </section>
+
+    <!-- 2. 배역 설정 -->
+    <section id="view-cast" class="view">
+      <p class="help">내가 연기할 역할을 체크하세요. 나머지 역할은 앱이 읽어 줍니다. 이름을 고치면 같은 이름끼리 합쳐집니다(예: "민수"와 "민수(V.O.)" 통합).</p>
+      <table class="cast">
+        <thead><tr><th>내 역할</th><th>인물</th><th>대사 수</th><th>목소리 성격</th><th>음성</th><th></th></tr></thead>
+        <tbody id="cast-body"></tbody>
+      </table>
+      <fieldset class="options">
+        <legend>연습 옵션</legend>
+        <label>내 대사 표시
+          <select id="opt-mode">
+            <option value="full">전체 보기</option>
+            <option value="hint" selected>첫 글자 힌트</option>
+            <option value="hidden">숨기기 (암기 테스트)</option>
+          </select>
+        </label>
+        <label>통과 기준 <input id="opt-threshold" type="range" min="40" max="100" value="70"> <span id="opt-threshold-val">70%</span></label>
+        <label>상대 대사 속도 <input id="opt-rate" type="range" min="0.6" max="1.6" step="0.1" value="1"> <span id="opt-rate-val">1.0×</span></label>
+        <label><input id="opt-directions" type="checkbox"> 지문도 읽어 주기</label>
+        <label><input id="opt-record" type="checkbox" checked> 내 대사 녹음하기 <small>(이 창을 닫으면 사라짐)</small></label>
+        <label><input id="opt-ai-image" type="checkbox"> AI 장면 이미지 생성 <small>(장면 제목이 외부 이미지 서비스로 전송됨)</small></label>
+      </fieldset>
+      <div class="row"><span class="spacer"></span><button id="btn-to-practice" class="primary">연습 시작 →</button></div>
+    </section>
+
+    <!-- 3. 연습 -->
+    <section id="view-practice" class="view">
+      <div id="stage" class="stage">
+        <img id="stage-img" alt="" hidden>
+        <div class="stage-overlay">
+          <div id="stage-emoji" class="stage-emoji">🎬</div>
+          <div id="stage-scene" class="stage-scene">장면</div>
+          <div id="stage-direction" class="stage-direction"></div>
+        </div>
+      </div>
+
+      <div id="line-card" class="line-card">
+        <div class="line-head"><span id="line-who"></span><span id="line-note" class="note-chip"></span></div>
+        <div id="line-text" class="line-text">▶ 시작 버튼을 누르세요.</div>
+        <div id="line-diff" class="line-diff"></div>
+        <div id="mic-status" class="mic"></div>
+      </div>
+
+      <div class="row controls" id="controls">
+        <button id="btn-prev" class="ghost" title="이전 대사">⏮</button>
+        <button id="btn-play" class="primary">▶ 시작</button>
+        <button id="btn-next" class="ghost" title="다음 (Space)">⏭</button>
+        <span class="spacer"></span>
+        <button id="btn-retry" class="ghost" hidden>🔁 다시 말하기</button>
+        <button id="btn-reveal" class="ghost" hidden>👀 대사 보기</button>
+        <button id="btn-pass" class="ghost" hidden>✔ 통과 처리</button>
+        <button id="btn-my-take" class="ghost" hidden>🎧 내 녹음 듣기</button>
+        <button id="btn-replay-scene" class="ghost" title="상대역 음성 + 내 녹음으로 이 장면을 이어서 재생">🎬 장면 다시 듣기</button>
+      </div>
+      <div class="progress"><div id="progress-bar"></div></div>
+      <ol id="transcript" class="transcript"></ol>
+    </section>
+  </main>
+
+  <script src="parser.js"></script>
+  <script src="sample.js"></script>
+  <script src="speech.js"></script>
+  <script src="recorder.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
