@@ -236,6 +236,12 @@
 
   async function listenForLine(item, token) {
     const threshold = state.opts.threshold / 100;
+    if (!(await hasMicrophone())) {
+      if (token !== runToken) return 'wait';
+      setMic(NO_MIC_MESSAGE);
+      setRetryButtons(true);
+      return 'wait';
+    }
     const recording = await startRecording();
     if (token !== runToken) { R.discard(); return 'wait'; }
     setMic((recording ? '⏺ 녹음 중 · ' : '') + '듣고 있어요… 대사를 말해 주세요.', true);
@@ -266,9 +272,27 @@
   async function startRecording() {
     if (state.opts.record === false || !R.canRecord) return false;
     try { await R.start(); return true; } catch (err) {
-      setMic('녹음을 시작하지 못했습니다(' + err.message + '). 녹음 없이 계속합니다.');
+      setMic(err.name === 'NotAllowedError' ? permissionMessage() : '녹음을 시작하지 못해 녹음 없이 계속합니다.');
       return false;
     }
+  }
+
+  // 마이크 장치가 하나라도 꽂혀 있는지 (권한 없이도 개수는 알 수 있음)
+  async function hasMicrophone() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return true;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.some((d) => d.kind === 'audioinput');
+    } catch (_) { return true; }  // 확인 불가면 일단 시도
+  }
+
+  const NO_MIC_MESSAGE = '🎤 연결된 마이크가 없습니다. 마이크(이어폰 마이크·웹캠·USB 마이크)를 연결한 뒤 🔁 다시 말하기를 누르세요. 마이크 없이 하려면 대사를 말하고 ⏭를 누르세요.';
+
+  function permissionMessage() {
+    const isAppWindow = window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: minimal-ui)').matches;
+    return isAppWindow
+      ? '🚫 마이크가 차단되어 있습니다. 창 오른쪽 위 ⋯ 메뉴 → 「사이트 권한」(또는 「앱 권한」)에서 마이크를 「허용」으로 바꾼 뒤 🔁 다시 말하기를 누르세요.'
+      : '🚫 마이크가 차단되어 있습니다. 주소창 왼쪽의 🔒(또는 ⓘ) 아이콘 → 마이크 「허용」으로 바꾸고 새로고침하세요.';
   }
 
   function saveTake(index, blob) {
@@ -312,7 +336,8 @@
   }
 
   function micErrorMessage(code) {
-    if (code === 'not-allowed' || code === 'service-not-allowed') return '🚫 마이크 권한이 거부되었습니다. 주소창의 🔒 아이콘에서 마이크를 허용해 주세요.';
+    if (code === 'audio-capture') return NO_MIC_MESSAGE;
+    if (code === 'not-allowed' || code === 'service-not-allowed') return permissionMessage();
     if (code === 'network') return '🌐 음성 인식 서버에 연결하지 못했습니다. 인터넷 연결을 확인하세요.';
     return '음성 인식 오류: ' + code;
   }
