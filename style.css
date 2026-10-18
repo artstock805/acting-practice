@@ -116,9 +116,21 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .transcript li .tag { float: right; font-weight: 800; }
 
 .install { margin-left: auto; padding: 6px 14px; font-size: 0.9rem; }
+.install + .install { margin-left: 0; }
+
+/* 휴대폰에서 열기 안내 */
+.phone-dialog { background: var(--stage-2); color: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-lg);
+  padding: 24px 28px; max-width: min(420px, calc(100vw - 32px)); text-align: center; box-shadow: 0 30px 80px -20px #000; }
+.phone-dialog::backdrop { background: #000a; }
+.phone-dialog h2 { font-family: var(--serif); margin: 0 0 6px; }
+.phone-dialog img { background: #fff; border-radius: 12px; padding: 6px; margin: 8px auto; display: block; }
+.phone-dialog .url { font-weight: 800; color: var(--spot); margin: 4px 0 12px; word-break: break-all; }
+.phone-dialog ol { text-align: left; padding-left: 20px; line-height: 1.7; color: var(--paper); font-size: 0.92rem; }
+.phone-dialog .note { margin: 8px 0 16px; }
 
 /* 휴대폰: 카드형 배역표, 큰 터치 영역, 하단 고정 조작부, 노치 안전영역 */
 @media (max-width: 640px) {
+  .phone-only-hide { display: none; }
   body { padding-bottom: env(safe-area-inset-bottom); }
   .top { gap: 10px; padding: calc(10px + env(safe-area-inset-top)) 16px 10px; }
   .top h1 { font-size: 1.2rem; }

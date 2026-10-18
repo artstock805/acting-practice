@@ -1,7 +1,7 @@
 // 오프라인 실행 + 앱 설치용 서비스 워커. 네트워크 우선이라 업데이트가 바로 반영되고, 오프라인이면 캐시로 열림
-const CACHE = 'acting-practice-v2';
+const CACHE = 'acting-practice-v3';
 const SHELL = ['./', 'index.html', 'style.css', 'parser.js', 'sample.js', 'voices.js', 'speech.js', 'recorder.js', 'app.js',
-  'manifest.webmanifest', 'assets/acting-practice.png', 'assets/icon-192.png'];
+  'manifest.webmanifest', 'assets/acting-practice.png', 'assets/icon-192.png', 'assets/qr-mobile.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

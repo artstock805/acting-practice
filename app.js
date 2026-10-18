@@ -476,6 +476,7 @@
     $('btn-parse').onclick = parseAndGo;
     $('btn-to-practice').onclick = goPractice;
     $('btn-auto-voices').onclick = autoAssignVoices;
+    $('btn-phone').onclick = () => $('phone-dialog').showModal();
     $('btn-play').onclick = () => {
       S.unlock();  // iOS는 첫 음성을 사용자 터치 안에서 내야 이후 낭독이 허용됨
       if (state.index >= state.items.length) { update({ index: 0, results: {} }); renderTranscript(); return play(); }
