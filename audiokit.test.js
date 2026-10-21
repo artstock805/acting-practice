@@ -27,6 +27,33 @@ test('silence detector cuts very long takes at maxMs', () => {
   assert.strictEqual(d.update(0.5, 4000), 'max');
 });
 
+test('quiet phone voices count as speech (below the old 0.02 threshold)', () => {
+  const d = A.createSilenceDetector({ silenceMs: 1000 });
+  for (let t = 0; t < 300; t += 50) d.update(0.001, t);     // 조용한 방
+  assert.strictEqual(d.update(0.01, 400), null);            // 잡음 제거된 작은 목소리
+  assert.strictEqual(d.spoke, true);
+  assert.strictEqual(d.update(0.001, 1400), 'speech-end');
+});
+
+test('noisy rooms raise the threshold, but never above the cap', () => {
+  const noisy = A.createSilenceDetector();
+  for (let t = 0; t < 300; t += 50) noisy.update(0.005, t);
+  assert.ok(Math.abs(noisy.threshold - 0.015) < 1e-9);       // 소음 0.005 × 3
+  const talkingRightAway = A.createSilenceDetector();
+  for (let t = 0; t < 300; t += 50) talkingRightAway.update(0.2, t);  // 시작하자마자 말함
+  assert.strictEqual(talkingRightAway.threshold, A.DEFAULTS.maxThreshold);
+  assert.strictEqual(talkingRightAway.spoke, true);
+});
+
+test('a level stuck at exactly 0 means no signal, not silence', () => {
+  const d = A.createSilenceDetector({ noSpeechMs: 1000 });
+  for (let t = 0; t < 1000; t += 50) assert.strictEqual(d.update(0, t), null);
+  assert.strictEqual(d.update(0, 1000), 'no-signal');
+  const quiet = A.createSilenceDetector({ noSpeechMs: 1000 });
+  quiet.update(0.0001, 0);
+  assert.strictEqual(quiet.update(0, 1000), 'no-speech');
+});
+
 test('rms measures loudness', () => {
   assert.strictEqual(A.rms(new Float32Array(0)), 0);
   assert.strictEqual(A.rms(Float32Array.from([0.5, -0.5, 0.5, -0.5])), 0.5);

@@ -282,18 +282,25 @@
   async function listenViaServer(item, token, threshold) {
     setMic('⏺ 녹음 중 · 듣고 있어요… 대사를 말해 주세요.', true);
     listener = C.listen({ onPhase: () => { if (token === runToken) setMic('⏳ 채점 중…', true); } });
+    const diag = listener.diag;
     let result;
     try { result = await listener.promise; } catch (err) {
       listener = null;
       if (token !== runToken) return 'wait';
-      setMic(cloudErrorMessage(err));
+      setMic(cloudErrorMessage(err) + cloudDiagnosis(diag));
       setRetryButtons(true);
       return 'wait';
     }
     listener = null;
     if (token !== runToken) return 'wait';
     if (result.blob) saveTake(state.index, result.blob);
-    return judgeLine(item, result.text, threshold, '');
+    return judgeLine(item, result.text, threshold, cloudDiagnosis(diag));
+  }
+
+  // 서버 채점이 실패했을 때: 오디오 상태, 들린 최대 소리 크기, 무음 감지 결과, 업로드 크기
+  function cloudDiagnosis(d) {
+    const upload = d.uploadKB === null ? '업로드 안 함' : `업로드 ${d.uploadKB}KB`;
+    return `\n[진단] ${PHONE_OS} 서버채점 · 오디오 ${d.ctx || '?'} · 최대 ${d.peak.toFixed(4)} / 기준 ${d.threshold.toFixed(4)} · ${d.outcome || '?'} · ${upload}`;
   }
 
   function useCloudScoring() {
@@ -545,6 +552,7 @@
     $('btn-phone').onclick = () => { showPhoneQr(); $('phone-dialog').showModal(); };
     $('btn-play').onclick = () => {
       S.unlock();  // iOS는 첫 음성을 사용자 터치 안에서 내야 이후 낭독이 허용됨
+      if (RECORD_BLOCKS_SCORING) C.unlock();  // 서버 채점의 소리 크기 측정도 터치 안에서 켜 둬야 휴대폰에서 동작
       if (state.index >= state.items.length) { update({ index: 0, results: {} }); renderTranscript(); return play(); }
       const isRunning = $('btn-play').textContent.startsWith('⏸');
       if (isRunning) stopPlayback(); else play();
@@ -556,7 +564,7 @@
       jumpTo(state.index + 1, resume);
     };
     $('btn-prev').onclick = () => jumpTo(nextLineIndex(state.index, -1), false);
-    $('btn-retry').onclick = () => play();
+    $('btn-retry').onclick = () => { if (RECORD_BLOCKS_SCORING) C.unlock(); play(); };
     $('btn-reveal').onclick = () => revealLine(state.items[state.index]);
     $('btn-my-take').onclick = () => { if (takes[state.index]) R.play(takes[state.index]); };
     resetReplayButton();
