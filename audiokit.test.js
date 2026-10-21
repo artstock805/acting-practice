@@ -49,8 +49,11 @@ test('a level stuck at exactly 0 means no signal, not silence', () => {
   const d = A.createSilenceDetector({ noSpeechMs: 1000 });
   for (let t = 0; t < 1000; t += 50) assert.strictEqual(d.update(0, t), null);
   assert.strictEqual(d.update(0, 1000), 'no-signal');
+  const suspended = A.createSilenceDetector({ noSpeechMs: 1000 });
+  suspended.update(0.00001, 0);  // 멈춘 오디오가 내는 아주 작은 값 (진단 화면의 '최대 0.0000')
+  assert.strictEqual(suspended.update(0, 1000), 'no-signal');
   const quiet = A.createSilenceDetector({ noSpeechMs: 1000 });
-  quiet.update(0.0001, 0);
+  quiet.update(0.001, 0);        // 실제 마이크의 조용한 방 잡음
   assert.strictEqual(quiet.update(0, 1000), 'no-speech');
 });
 

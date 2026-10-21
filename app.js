@@ -281,7 +281,13 @@
   // 휴대폰 + 서버: 녹음 → 말이 끝나면 자동 정지 → 서버가 글자로 바꿔 줌 → 채점. 녹음은 다시 듣기에 그대로 씀
   async function listenViaServer(item, token, threshold) {
     setMic('⏺ 녹음 중 · 듣고 있어요… 대사를 말해 주세요.', true);
-    listener = C.listen({ onPhase: () => { if (token === runToken) setMic('⏳ 채점 중…', true); } });
+    listener = C.listen({
+      onPhase: (phase, ms) => {
+        if (token !== runToken) return;
+        if (phase === 'timed') setMic(`⏺ 녹음 중 · 대사를 말해 주세요 (${ms / 1000}초 동안 녹음)`, true);
+        else setMic('⏳ 채점 중…', true);
+      },
+    });
     const diag = listener.diag;
     let result;
     try { result = await listener.promise; } catch (err) {
@@ -552,7 +558,6 @@
     $('btn-phone').onclick = () => { showPhoneQr(); $('phone-dialog').showModal(); };
     $('btn-play').onclick = () => {
       S.unlock();  // iOS는 첫 음성을 사용자 터치 안에서 내야 이후 낭독이 허용됨
-      if (RECORD_BLOCKS_SCORING) C.unlock();  // 서버 채점의 소리 크기 측정도 터치 안에서 켜 둬야 휴대폰에서 동작
       if (state.index >= state.items.length) { update({ index: 0, results: {} }); renderTranscript(); return play(); }
       const isRunning = $('btn-play').textContent.startsWith('⏸');
       if (isRunning) stopPlayback(); else play();
@@ -564,7 +569,7 @@
       jumpTo(state.index + 1, resume);
     };
     $('btn-prev').onclick = () => jumpTo(nextLineIndex(state.index, -1), false);
-    $('btn-retry').onclick = () => { if (RECORD_BLOCKS_SCORING) C.unlock(); play(); };
+    $('btn-retry').onclick = () => play();
     $('btn-reveal').onclick = () => revealLine(state.items[state.index]);
     $('btn-my-take').onclick = () => { if (takes[state.index]) R.play(takes[state.index]); };
     resetReplayButton();
@@ -642,7 +647,11 @@
     bindOptions();
     setupInstall();
     window.addEventListener('pagehide', () => R.release());  // 앱을 닫거나 다른 화면으로 가면 마이크를 놓음
-    if (RECORD_BLOCKS_SCORING) C.checkAvailable().then((ok) => { cloudReady = ok; if (ok) bindOptions(); });
+    if (RECORD_BLOCKS_SCORING) {
+      C.checkAvailable().then((ok) => { cloudReady = ok; if (ok) bindOptions(); });
+      // 휴대폰은 터치 안에서만 오디오를 켜게 해 줌. 연습은 ▶ 말고도 여러 경로로 시작되니 화면 어디를 눌러도 켜 둠
+      document.addEventListener('pointerdown', () => C.unlock(), { capture: true, passive: true });
+    }
     S.onVoicesReady(() => { if (state.items.length) renderCast(); });
     if (state.items.length) renderCast();
     enableTabs();

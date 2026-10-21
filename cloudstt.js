@@ -7,6 +7,8 @@
   const R = root.Recorder;
   const TARGET_RATE = 16000;
   const POLL_MS = 50;
+  const RESUME_WAIT_MS = 500;
+  const TIMED_TAKE_MS = 7000;   // 소리 크기를 못 잴 때 녹음할 시간 (그 뒤 서버가 말이 있었는지 판단)
   const Ctx = root.AudioContext || root.webkitAudioContext;
 
   // 서버가 있는 배포(Cloud Run)에서만 true. GitHub Pages 같은 정적 호스팅은 404라 false
@@ -46,26 +48,14 @@
     let rejectFn;
     const promise = new Promise((res, rej) => { resolveFn = res; rejectFn = rej; });
 
-    const cleanup = () => { clearInterval(timer); if (source) source.disconnect(); source = null; };
+    const cleanup = () => { clearInterval(timer); clearTimeout(timer); if (source) source.disconnect(); source = null; };
 
     (async () => {
       await R.start();
       if (stopped) { R.discard(); return; }
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024;
-      source = ctx.createMediaStreamSource(R.getStream());
-      source.connect(analyser);
-      const frame = new Float32Array(analyser.fftSize);
-      const detector = A.createSilenceDetector();
-      const outcome = await new Promise((done) => {
-        finishLoop = done;
-        timer = setInterval(() => {
-          analyser.getFloatTimeDomainData(frame);
-          const result = detector.update(A.rms(frame), Date.now());
-          if (result) done(result);
-        }, POLL_MS);
-      });
-      Object.assign(diag, { ctx: ctx.state, peak: detector.peak, threshold: detector.threshold, outcome });
+      const running = await ensureRunning(ctx);
+      if (stopped) { R.discard(); return; }
+      const outcome = running ? await detectSpeechEnd() : await timedTake();
       cleanup();
       if (stopped) return;
       // 소리 크기를 못 재는 경우(no-signal)는 말이 없었다고 단정하지 않고 서버에 맡김
@@ -81,6 +71,37 @@
       rejectFn(err);
     });
 
+    // 소리 크기를 재며 말이 끝날 때까지 기다림
+    async function detectSpeechEnd() {
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      source = ctx.createMediaStreamSource(R.getStream());
+      source.connect(analyser);
+      const frame = new Float32Array(analyser.fftSize);
+      const detector = A.createSilenceDetector();
+      const outcome = await new Promise((done) => {
+        finishLoop = done;
+        timer = setInterval(() => {
+          analyser.getFloatTimeDomainData(frame);
+          const result = detector.update(A.rms(frame), Date.now());
+          if (result) done(result);
+        }, POLL_MS);
+      });
+      Object.assign(diag, { ctx: ctx.state, peak: detector.peak, threshold: detector.threshold, outcome });
+      return outcome;
+    }
+
+    // 오디오가 끝내 켜지지 않으면(휴대폰 자동 재생 제한) 정해진 시간만 녹음
+    async function timedTake() {
+      if (onPhase) onPhase('timed', TIMED_TAKE_MS);
+      const outcome = await new Promise((done) => {
+        finishLoop = done;
+        timer = setTimeout(() => done('timed'), TIMED_TAKE_MS);
+      });
+      Object.assign(diag, { ctx: ctx.state, outcome });
+      return outcome;
+    }
+
     return {
       promise,
       diag,
@@ -93,6 +114,13 @@
         resolveFn(EMPTY);
       },
     };
+  }
+
+  // 멈춘 오디오를 다시 켜 보고, 잠깐 기다려도 안 켜지면 false
+  async function ensureRunning(ctx) {
+    if (ctx.state === 'running') return true;
+    await Promise.race([ctx.resume().catch(() => {}), new Promise((r) => setTimeout(r, RESUME_WAIT_MS))]);
+    return ctx.state === 'running';
   }
 
   async function transcribe(blob, signal, diag) {

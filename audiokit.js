@@ -12,8 +12,11 @@
     maxMs: 18000,        // 서버 한도(20초)보다 조금 짧게 끊음
   };
 
+  // 실제 마이크는 조용한 방에서도 이보다 큰 잡음이 잡힘. 내내 이보다 작으면 측정이 안 되는 상태(오디오 멈춤 등)
+  const NO_SIGNAL_PEAK = 0.0001;
+
   // 일정 간격으로 update(소리 크기, 시각)를 부르면 'speech-end' | 'no-speech' | 'max' | 'no-signal' | null 을 돌려줌.
-  // 'no-signal' = 소리 크기가 내내 정확히 0 → 측정이 안 되는 것(오디오가 멈춤 등)이라 말이 없었다고 단정할 수 없음
+  // 'no-signal' = 소리 크기가 내내 거의 0 → 측정이 안 되는 것(오디오가 멈춤 등)이라 말이 없었다고 단정할 수 없음
   function createSilenceDetector(options) {
     const o = { ...DEFAULTS, ...options };
     let startedAt = null;
@@ -35,7 +38,7 @@
           threshold = Math.min(cap, Math.max(o.threshold, (noiseSum / noiseCount) * o.noiseFactor));
         }
         if (level >= threshold) { spoke = true; heardAt = now; }
-        const silentResult = peak === 0 ? 'no-signal' : 'no-speech';
+        const silentResult = peak < NO_SIGNAL_PEAK ? 'no-signal' : 'no-speech';
         if (elapsed >= o.maxMs) return spoke ? 'max' : silentResult;
         if (!spoke) return elapsed >= o.noSpeechMs ? silentResult : null;
         return now - heardAt >= o.silenceMs ? 'speech-end' : null;
