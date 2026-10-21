@@ -25,48 +25,66 @@
   function listen({ onPhase } = {}) {
     let stopped = false;
     let timer = null;
-    let ctx = null;
+    let finishLoop = null;     // 무음 감지 루프를 끝내는 함수 (stop()에서도 부름)
+    const upload = new AbortController();
+    const EMPTY = { text: '', blob: null };
+    // iOS는 사용자 동작 밖에서 만든 AudioContext가 멈춘 채로 시작함 → 최대한 일찍 만들고 resume
+    const ctx = new (root.AudioContext || root.webkitAudioContext)();
+    ctx.resume().catch(() => {});
     let resolveFn;
     let rejectFn;
     const promise = new Promise((res, rej) => { resolveFn = res; rejectFn = rej; });
 
-    const cleanup = () => { clearInterval(timer); if (ctx) ctx.close().catch(() => {}); ctx = null; };
+    const cleanup = () => { clearInterval(timer); if (ctx.state !== 'closed') ctx.close().catch(() => {}); };
 
     (async () => {
       await R.start();
-      if (stopped) { R.discard(); return; }
-      ctx = new (root.AudioContext || root.webkitAudioContext)();
+      if (stopped) { R.discard(); return; }  // 마이크를 여는 사이에 중지된 경우
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 1024;
       ctx.createMediaStreamSource(R.getStream()).connect(analyser);
       const frame = new Float32Array(analyser.fftSize);
       const detector = A.createSilenceDetector();
       const outcome = await new Promise((done) => {
+        finishLoop = done;
         timer = setInterval(() => {
-          if (stopped) return done('stopped');
           analyser.getFloatTimeDomainData(frame);
           const result = detector.update(A.rms(frame), Date.now());
           if (result) done(result);
         }, POLL_MS);
       });
       cleanup();
-      if (outcome === 'stopped') return;
-      if (outcome === 'no-speech') { R.discard(); return resolveFn({ text: '', blob: null }); }
+      if (stopped) return;
+      if (outcome === 'no-speech') { R.discard(); return resolveFn(EMPTY); }
       const blob = await R.stop();
-      if (!blob || stopped) return resolveFn({ text: '', blob: null });
+      if (!blob || stopped) return resolveFn(EMPTY);
       if (onPhase) onPhase('upload');
-      resolveFn({ text: await transcribe(blob), blob });
-    })().catch((err) => { cleanup(); R.discard(); rejectFn(err); });
+      resolveFn({ text: await transcribe(blob, upload.signal), blob });
+    })().catch((err) => {
+      cleanup();
+      R.release();  // 실패하면 마이크를 놓아야 휴대폰 내장 인식 등 다음 시도가 소리를 받음
+      if (stopped) return;
+      rejectFn(err);
+    });
 
     return {
       promise,
-      stop() { stopped = true; cleanup(); R.discard(); resolveFn({ text: '', blob: null }); },
+      stop() {
+        stopped = true;
+        if (finishLoop) finishLoop('stopped');
+        upload.abort();
+        cleanup();
+        R.discard();
+        resolveFn(EMPTY);
+      },
     };
   }
 
-  async function transcribe(blob) {
-    const wav = A.encodeWav(await toMono16k(blob), TARGET_RATE);
-    const res = await fetch('api/stt', { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wav });
+  async function transcribe(blob, signal) {
+    const samples = await toMono16k(blob);
+    if (samples.length < TARGET_RATE / 10) return '';  // 0.1초도 안 되면 말이 없던 것
+    const wav = A.encodeWav(samples, TARGET_RATE);
+    const res = await fetch('api/stt', { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wav, signal });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(body.error || 'server ' + res.status), { server: true, status: res.status });
     return body.text || '';
@@ -78,6 +96,7 @@
     const decodeCtx = new Ctx();
     try {
       const decoded = await decodeCtx.decodeAudioData(await blob.arrayBuffer());
+      if (!decoded.duration) return new Float32Array(0);
       const offline = new OfflineAudioContext(1, Math.ceil(decoded.duration * TARGET_RATE), TARGET_RATE);
       const src = offline.createBufferSource();
       src.buffer = decoded;

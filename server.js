@@ -9,6 +9,9 @@ const ROOT = path.resolve(process.env.STATIC_ROOT || __dirname);
 const MAX_AUDIO_BYTES = 1024 * 1024;   // 16kHz 모노 16bit 기준 약 32초
 const MAX_AUDIO_SECONDS = 20;
 const RATE_LIMIT = { max: 30, windowMs: 60_000 };  // IP당 분당 요청 수
+const GLOBAL_LIMIT = { max: 300, windowMs: 60_000 };  // 인스턴스 전체 분당 요청 수 (IP를 바꿔 가며 보내는 남용 대비)
+const MAX_IN_FLIGHT = 10;          // 동시에 Google로 보내는 요청 수
+const UPSTREAM_TIMEOUT_MS = 10_000;
 const STT_URL = 'https://speech.googleapis.com/v1/speech:recognize';
 
 const MIME = {
@@ -32,7 +35,7 @@ function parseWavHeader(buf) {
     const id = buf.toString('ascii', offset, offset + 4);
     const size = buf.readUInt32LE(offset + 4);
     const body = offset + 8;
-    if (id === 'fmt ' && size >= 16) {
+    if (id === 'fmt ' && size >= 16 && body + 16 <= buf.length) {
       fmt = { format: buf.readUInt16LE(body), channels: buf.readUInt16LE(body + 2), sampleRate: buf.readUInt32LE(body + 4), bits: buf.readUInt16LE(body + 14) };
     } else if (id === 'data' && fmt) {
       const dataBytes = Math.min(size, buf.length - body);
@@ -59,7 +62,8 @@ function createRateLimiter({ max, windowMs }, now = Date.now) {
     const t = now();
     const entry = hits.get(key);
     if (!entry || t - entry.start >= windowMs) {
-      if (hits.size > 10_000) hits.clear();  // 오래 켜진 인스턴스에서 메모리가 무한히 늘지 않게
+      // 오래 켜진 인스턴스에서 메모리가 무한히 늘지 않게, 창이 지난 기록만 지움 (전부 지우면 남의 제한까지 풀림)
+      if (hits.size > 10_000) hits.forEach((e, k) => { if (t - e.start >= windowMs) hits.delete(k); });
       hits.set(key, { start: t, count: 1 });
       return true;
     }
@@ -73,18 +77,27 @@ function createRateLimiter({ max, windowMs }, now = Date.now) {
 // Cloud Run에서는 메타데이터 서버가 서비스 계정 토큰을 줌 (API 키 불필요).
 // 로컬 개발: GCP_ACCESS_TOKEN=$(gcloud auth print-access-token) GCP_PROJECT=acting-practice node server.js
 let cachedToken = null;
+let tokenRequest = null;  // 토큰이 만료될 때 동시에 들어온 요청들이 한 번만 새로 받게 함
 async function getAuth() {
   if (process.env.GCP_ACCESS_TOKEN) {
     return { token: process.env.GCP_ACCESS_TOKEN, project: process.env.GCP_PROJECT };
   }
   if (cachedToken && cachedToken.expires > Date.now() + 60_000) return { token: cachedToken.token };
+  if (!tokenRequest) {
+    tokenRequest = fetchMetadataToken().finally(() => { tokenRequest = null; });
+  }
+  return { token: await tokenRequest };
+}
+
+async function fetchMetadataToken() {
   const res = await fetch('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token', {
     headers: { 'Metadata-Flavor': 'Google' },
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`metadata token ${res.status}`);
   const body = await res.json();
   cachedToken = { token: body.access_token, expires: Date.now() + body.expires_in * 1000 };
-  return { token: cachedToken.token };
+  return cachedToken.token;
 }
 
 async function recognize(wav, info) {
@@ -94,6 +107,7 @@ async function recognize(wav, info) {
   const res = await fetch(STT_URL, {
     method: 'POST',
     headers,
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     body: JSON.stringify({
       config: { encoding: 'LINEAR16', sampleRateHertz: info.sampleRate, languageCode: 'ko-KR', maxAlternatives: 1 },
       audio: { content: wav.subarray(info.dataOffset, info.dataOffset + info.dataBytes).toString('base64') },
@@ -131,27 +145,37 @@ function readBody(req, limit) {
   });
 }
 
+// Cloud Run 앞단은 실제 접속 IP를 X-Forwarded-For 맨 뒤에 붙임. 앞쪽 값은 클라이언트가 마음대로 넣을 수 있음
 function clientIp(req) {
   const fwd = req.headers['x-forwarded-for'];
-  return (fwd ? String(fwd).split(',')[0] : req.socket.remoteAddress || '').trim();
+  const parts = fwd ? String(fwd).split(',').map((s) => s.trim()).filter(Boolean) : [];
+  return parts.length ? parts[parts.length - 1] : req.socket.remoteAddress || '';
 }
 
-function createSttHandler({ allow = createRateLimiter(RATE_LIMIT), transcribe = recognize } = {}) {
+const TOO_MANY = { error: '요청이 너무 많습니다. 잠시 뒤 다시 해 주세요.' };
+
+function createSttHandler({ allow = createRateLimiter(RATE_LIMIT), allowGlobal = createRateLimiter(GLOBAL_LIMIT), transcribe = recognize } = {}) {
+  let inFlight = 0;
   return async function handleStt(req, res) {
-    if (!allow(clientIp(req))) return sendJson(res, 429, { error: '요청이 너무 많습니다. 잠시 뒤 다시 해 주세요.' });
-    if (!String(req.headers['content-type'] || '').startsWith('audio/wav')) return sendJson(res, 415, { error: 'audio/wav만 받습니다.' });
+    if (!allow(clientIp(req)) || !allowGlobal('all')) { req.resume(); return sendJson(res, 429, TOO_MANY); }
+    if (!String(req.headers['content-type'] || '').startsWith('audio/wav')) { req.resume(); return sendJson(res, 415, { error: 'audio/wav만 받습니다.' }); }
     let wav;
     try { wav = await readBody(req, MAX_AUDIO_BYTES); } catch (err) {
       return sendJson(res, err.status || 400, { error: err.status === 413 ? '녹음이 너무 큽니다.' : '녹음을 받지 못했습니다.' });
     }
-    const info = parseWavHeader(wav);
+    let info;
+    try { info = parseWavHeader(wav); } catch { info = null; }  // 망가진 파일이 서버를 멈추지 않게
     const invalid = validateWav(info);
     if (invalid) return sendJson(res, 400, { error: invalid });
+    if (inFlight >= MAX_IN_FLIGHT) return sendJson(res, 503, TOO_MANY);
+    inFlight++;
     try {
       return sendJson(res, 200, { text: await transcribe(wav, info) });
     } catch (err) {
       console.error('[stt]', err.message);  // 자세한 원인은 서버 로그에만 남김
       return sendJson(res, 502, { error: '음성 인식 서버에서 오류가 났습니다.' });
+    } finally {
+      inFlight--;
     }
   };
 }
@@ -172,20 +196,35 @@ async function serveStatic(req, res) {
   }
 }
 
+function route(handleStt, req, res) {
+  let pathname;
+  try { pathname = new URL(req.url, 'http://x').pathname; } catch { return send(res, 400, ''); }  // 예: 'GET //'
+  if (pathname === '/api/stt' && req.method === 'POST') return handleStt(req, res);
+  if (pathname === '/api/stt/health' && req.method === 'GET') return sendJson(res, 200, { ok: true });
+  if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);
+  return send(res, 405, '');
+}
+
 function createServer(opts) {
   const handleStt = createSttHandler(opts);
-  return http.createServer((req, res) => {
-    const { pathname } = new URL(req.url, 'http://x');
-    if (pathname === '/api/stt' && req.method === 'POST') return handleStt(req, res);
-    if (pathname === '/api/stt/health' && req.method === 'GET') return sendJson(res, 200, { ok: true });
-    if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);
-    return send(res, 405, '');
+  const server = http.createServer((req, res) => {
+    // 요청 하나의 예상 못 한 오류가 프로세스 전체를 멈추지 않게 여기서 받음
+    Promise.resolve()
+      .then(() => route(handleStt, req, res))
+      .catch((err) => {
+        console.error('[server]', err && err.stack ? err.stack : err);
+        if (!res.headersSent) send(res, 500, '');
+        else res.destroy();
+      });
   });
+  server.on('clientError', (_err, socket) => { if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\n\r\n'); });
+  return server;
 }
 
 if (require.main === module) {
+  process.on('unhandledRejection', (err) => console.error('[unhandledRejection]', err));
   const port = Number(process.env.PORT) || 8080;
   createServer().listen(port, () => console.log(`acting-practice on :${port} (static: ${ROOT})`));
 }
 
-module.exports = { parseWavHeader, validateWav, createRateLimiter, createServer, MAX_AUDIO_SECONDS };
+module.exports = { parseWavHeader, validateWav, createRateLimiter, createServer, clientIp, MAX_AUDIO_SECONDS };
