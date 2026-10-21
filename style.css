@@ -99,7 +99,7 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .line-diff .w.ok { color: var(--ok); }
 .line-diff .w.bad { color: var(--bad); text-decoration: underline wavy; }
 .line-diff .score { font-family: var(--sans); font-weight: 800; margin-right: 8px; }
-.mic { margin-top: 10px; font-size: 0.9rem; color: #6d5c4b; min-height: 1.3em; }
+.mic { margin-top: 10px; font-size: 0.9rem; color: #6d5c4b; min-height: 1.3em; white-space: pre-line; }
 .mic.listening::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--mine); margin-right: 8px; animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: 0.25; transform: scale(0.7); } }
 

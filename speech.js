@@ -71,12 +71,20 @@
     let settled = false;
     let resolveFn;
     let rejectFn;
+    // 진단용: 인식 이벤트가 몇 초에 왔는지 기록 (휴대폰에서 '소리가 안 들림' 원인 찾기)
+    const t0 = Date.now();
+    const trace = [];
+    const mark = (name) => trace.push(name + ' ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+    ['start', 'audiostart', 'soundstart', 'speechstart', 'speechend', 'soundend', 'audioend'].forEach((name) => {
+      rec.addEventListener(name, () => mark(name));
+    });
 
     const finish = () => { if (!settled) { settled = true; clearTimeout(silenceTimer); clearTimeout(noSpeechTimer); try { rec.stop(); } catch (_) { /* 이미 종료됨 */ } resolveFn((finalText + ' ' + interim).trim()); } };
     const noSpeechTimer = setTimeout(finish, NO_SPEECH_MS);
 
     const promise = new Promise((res, rej) => { resolveFn = res; rejectFn = rej; });
     rec.onresult = (ev) => {
+      if (!trace.some((t) => t.startsWith('result'))) mark('result');
       interim = '';
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
@@ -89,15 +97,16 @@
       silenceTimer = setTimeout(finish, SILENCE_MS);
     };
     rec.onerror = (ev) => {
+      mark('error:' + ev.error);
       if (settled) return;
       if (ev.error === 'no-speech' || ev.error === 'aborted') { finish(); return; }
       settled = true;
       clearTimeout(silenceTimer); clearTimeout(noSpeechTimer);
       rejectFn(new Error(ev.error));
     };
-    rec.onend = () => finish();
-    try { rec.start(); } catch (err) { settled = true; clearTimeout(noSpeechTimer); rejectFn(err); }
-    return { promise, stop: () => { try { rec.abort(); } catch (_) { /* 이미 종료됨 */ } finish(); } };
+    rec.onend = () => { mark('end'); finish(); };
+    try { rec.start(); } catch (err) { mark('start-fail:' + err.name); settled = true; clearTimeout(noSpeechTimer); rejectFn(err); }
+    return { promise, trace, stop:() => { try { rec.abort(); } catch (_) { /* 이미 종료됨 */ } finish(); } };
   }
 
   function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }

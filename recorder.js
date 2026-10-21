@@ -59,5 +59,15 @@
     player = null;
   }
 
-  root.Recorder = { canRecord, start, stop, discard, play, stopPlaying };
+  // 녹음을 버리고 마이크까지 닫음. 열어 둔 채로 두면 휴대폰에서 음성 인식이 소리를 못 받음
+  function release() {
+    discard();
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+  }
+
+  // 녹음용으로 연 마이크가 아직 열려 있는지 (진단 표시용)
+  function isMicOpen() { return !!(stream && stream.getAudioTracks().some((t) => t.readyState === 'live')); }
+
+  root.Recorder = { canRecord, start, stop, discard, release, play, stopPlaying, isMicOpen };
 })(window);
