@@ -77,5 +77,13 @@ S#1. 카페 / 밤          ← 장면 제목
 - `parser.js` 대본 해석·채점·분위기 추정 · `voices.js` 인물별 목소리 배분 · `speech.js` 음성 합성/인식 · `recorder.js` 녹음 · `app.js` 화면 흐름
 - `sw.js` + `manifest.webmanifest` 앱 설치(PWA) · `serve.ps1` / `launch.ps1` / `install.ps1` Windows 실행기
 - 아이콘 다시 만들기: `python assets/make_icon.py` (Pillow 필요)
+- `vendor/qrcode.js` 📱 휴대폰에서 열기 QR을 지금 접속한 주소로 만드는 라이브러리([qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) 1.4.4, MIT). PC 로컬 실행에서는 `assets/qr-mobile.png`(공개 웹 주소)를 보여 줌
+
+### Cloud Run에 올리기 (시험 배포)
+`Dockerfile` + `nginx.conf.template`로 정적 파일을 nginx로 서빙합니다. 내 PC에 Docker가 없어도 Cloud Build가 대신 빌드합니다.
+```sh
+gcloud run deploy acting-practice --source . --project=acting-practice --region=asia-northeast3 --allow-unauthenticated --quiet
+```
+`main` 브랜치에 병합하면 GitHub Pages(https://artstock805.github.io/acting-practice/)에도 반영됩니다.
 
 MIT License

@@ -476,7 +476,7 @@
     $('btn-parse').onclick = parseAndGo;
     $('btn-to-practice').onclick = goPractice;
     $('btn-auto-voices').onclick = autoAssignVoices;
-    $('btn-phone').onclick = () => $('phone-dialog').showModal();
+    $('btn-phone').onclick = () => { showPhoneQr(); $('phone-dialog').showModal(); };
     $('btn-play').onclick = () => {
       S.unlock();  // iOS는 첫 음성을 사용자 터치 안에서 내야 이후 낭독이 허용됨
       if (state.index >= state.items.length) { update({ index: 0, results: {} }); renderTranscript(); return play(); }
@@ -499,6 +499,49 @@
       const typing = ['TEXTAREA', 'INPUT', 'SELECT'].includes(document.activeElement.tagName);
       if (e.code === 'Space' && !typing && $('view-practice').classList.contains('active')) { e.preventDefault(); $('btn-next').click(); }
     });
+  }
+
+  // ---------- 휴대폰에서 열기 QR ----------
+  // 지금 접속한 주소로 QR을 만듦(Cloud Run·GitHub Pages 어디서 열든 같은 곳으로 연결).
+  // PC 로컬 실행(localhost·파일)은 휴대폰이 접속할 수 없으니 기본 이미지(공개 웹 주소)를 그대로 둠
+  const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]', ''];
+  let phoneQrUrl = null;
+
+  function showPhoneQr() {
+    if (typeof window.qrcode !== 'function' || LOCAL_HOSTS.includes(location.hostname)) return;
+    const url = location.origin + location.pathname.replace(/index\.html$/, '');
+    if (url === phoneQrUrl) return;
+    const img = $('phone-qr');
+    try { img.src = drawQr(url); } catch { return; }  // 주소가 너무 길어 QR에 안 들어가면 기본 이미지를 그대로 둠
+    phoneQrUrl = url;
+    img.alt = url + ' 로 연결되는 QR 코드';
+    $('phone-url').textContent = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const icon = new Image();  // 가운데 앱 아이콘은 불러진 뒤 덧그림 (오류 정정 H라 가려져도 인식됨)
+    icon.onload = () => { if (phoneQrUrl === url) img.src = drawQr(url, icon); };
+    icon.src = 'assets/acting-practice.png';
+  }
+
+  function drawQr(text, icon) {
+    const qr = window.qrcode(0, 'H');
+    qr.addData(text);
+    qr.make();
+    const cell = 8, margin = 3 * cell, count = qr.getModuleCount();
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = count * cell + margin * 2;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#17130f';
+    for (let r = 0; r < count; r++) {
+      for (let c = 0; c < count; c++) if (qr.isDark(r, c)) ctx.fillRect(margin + c * cell, margin + r * cell, cell, cell);
+    }
+    if (icon) {
+      const size = Math.round(canvas.width / 5), pad = 8, at = (canvas.width - size) / 2;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(at - pad, at - pad, size + pad * 2, size + pad * 2);
+      ctx.drawImage(icon, at, at, size, size);
+    }
+    return canvas.toDataURL('image/png');
   }
 
   // ---------- 앱 설치 (PWA) ----------
