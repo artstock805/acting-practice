@@ -2,7 +2,7 @@
 import qrcode
 from PIL import Image
 
-URL = 'https://artstock805.github.io/acting-practice/'
+URL = 'https://acting-practice-160629403411.asia-northeast3.run.app/'
 
 qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=12, border=3)
 qr.add_data(URL)

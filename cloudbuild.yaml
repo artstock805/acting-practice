@@ -1,0 +1,43 @@
+# Cloud Build 배포: 테스트 → 이미지 빌드 → Artifact Registry → Cloud Run
+# 수동 실행: gcloud builds submit --config cloudbuild.yaml --project=acting-practice --region=asia-northeast3 .
+# main 브랜치 푸시 트리거에서도 같은 파일을 씀
+substitutions:
+  _REGION: asia-northeast3
+  _SERVICE: acting-practice
+  _IMAGE: asia-northeast3-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/acting-practice
+  _RUN_SA: acting-practice-run@${PROJECT_ID}.iam.gserviceaccount.com
+
+steps:
+  - id: test
+    name: node:22-alpine
+    entrypoint: node
+    args: ['--test']
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args: ['build', '-t', '${_IMAGE}:${BUILD_ID}', '-t', '${_IMAGE}:latest', '.']
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '--all-tags', '${_IMAGE}']
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_IMAGE}:${BUILD_ID}
+      - --region=${_REGION}
+      - --service-account=${_RUN_SA}
+      - --allow-unauthenticated
+      - --memory=256Mi
+      - --max-instances=3
+      - --quiet
+
+serviceAccount: projects/${PROJECT_ID}/serviceAccounts/acting-practice-build@${PROJECT_ID}.iam.gserviceaccount.com
+options:
+  logging: CLOUD_LOGGING_ONLY
+  dynamicSubstitutions: true   # _IMAGE·_RUN_SA 안의 ${PROJECT_ID}를 풀어 줌
+timeout: 900s

@@ -11,7 +11,7 @@
   const TIMED_TAKE_MS = 7000;   // 소리 크기를 못 잴 때 녹음할 시간 (그 뒤 서버가 말이 있었는지 판단)
   const Ctx = root.AudioContext || root.webkitAudioContext;
 
-  // 서버가 있는 배포(Cloud Run)에서만 true. GitHub Pages 같은 정적 호스팅은 404라 false
+  // 서버가 있는 배포(Cloud Run)에서만 true. 로컬 실행기(serve.ps1)나 정적 호스팅은 404라 false
   let availability = null;
   function checkAvailable() {
     if (!availability) {
