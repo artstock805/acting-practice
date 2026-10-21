@@ -1,6 +1,6 @@
 // 오프라인 실행 + 앱 설치용 서비스 워커. 네트워크 우선이라 업데이트가 바로 반영되고, 오프라인이면 캐시로 열림
-const CACHE = 'acting-practice-v4';
-const SHELL = ['./', 'index.html', 'style.css', 'parser.js', 'sample.js', 'voices.js', 'speech.js', 'recorder.js', 'vendor/qrcode.js', 'app.js',
+const CACHE = 'acting-practice-v7';
+const SHELL = ['./', 'index.html', 'style.css', 'parser.js', 'sample.js', 'voices.js', 'speech.js', 'recorder.js', 'audiokit.js', 'cloudstt.js', 'vendor/qrcode.js', 'app.js',
   'manifest.webmanifest', 'assets/acting-practice.png', 'assets/icon-192.png', 'assets/qr-mobile.png'];
 
 self.addEventListener('install', (e) => {
@@ -16,6 +16,7 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;  // AI 이미지 등 외부 요청은 건드리지 않음
+  if (url.pathname.includes('/api/')) return;  // 서버 음성 인식 상태는 캐시하면 안 됨 (오프라인인데 '사용 가능'으로 보임)
   e.respondWith(
     fetch(e.request)
       .then((res) => {
