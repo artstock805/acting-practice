@@ -1,0 +1,9 @@
+# Cloud Build로 올릴 때 제외할 파일 (Dockerfile이 필요한 파일만 골라 복사함)
+.git/
+.claude/
+node_modules/
+*.test.js
+*.ps1
+*.bat
+*.sh
+assets/*.py

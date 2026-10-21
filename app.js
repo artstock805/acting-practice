@@ -9,6 +9,9 @@
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const NARRATOR = '__narrator__';
   const $ = (id) => document.getElementById(id);
+  const PHONE_OS = phoneOS();
+  // 휴대폰은 녹음이 마이크를 잡으면 음성 인식에 무음만 들어감 → 인식이 되는 휴대폰에선 채점을 우선하고 녹음은 하지 않음
+  const RECORD_BLOCKS_SCORING = !!PHONE_OS && S.canListen;
 
   let state = loadState() || { text: '', items: [], cast: {}, opts: { mode: 'hint', threshold: 70, rate: 1, directions: false, aiImage: false, record: true }, index: 0, results: {} };
   let runToken = 0;
@@ -174,12 +177,16 @@
     $('opt-rate').value = o.rate;
     $('opt-directions').checked = o.directions;
     $('opt-ai-image').checked = o.aiImage;
-    $('opt-record').checked = o.record !== false;
+    $('opt-record').checked = o.record !== false && !RECORD_BLOCKS_SCORING;
+    $('opt-record').disabled = RECORD_BLOCKS_SCORING;
+    $('opt-record-note').hidden = !RECORD_BLOCKS_SCORING;
     const sync = () => {
       update({ opts: { mode: $('opt-mode').value, threshold: +$('opt-threshold').value, rate: +$('opt-rate').value,
-        directions: $('opt-directions').checked, aiImage: $('opt-ai-image').checked, record: $('opt-record').checked } });
+        directions: $('opt-directions').checked, aiImage: $('opt-ai-image').checked,
+        record: RECORD_BLOCKS_SCORING ? o.record : $('opt-record').checked } });  // 휴대폰에서 강제로 끈 건 저장하지 않음
       $('opt-threshold-val').textContent = state.opts.threshold + '%';
       $('opt-rate-val').textContent = state.opts.rate.toFixed(1) + '×';
+      if (!$('opt-record').checked) R.release();  // 녹음을 끄면 열어 둔 마이크도 바로 놓아 줌
     };
     ['opt-mode', 'opt-threshold', 'opt-rate', 'opt-directions', 'opt-ai-image', 'opt-record'].forEach((id) => { $(id).oninput = sync; $(id).onchange = sync; });
     sync();
@@ -214,7 +221,7 @@
     runToken++;
     waiting = false;
     S.stopSpeaking();
-    R.discard();
+    R.release();  // 연습을 멈추면 마이크를 놓아 다른 앱·음성 인식이 쓸 수 있게 함
     R.stopPlaying();
     resetReplayButton();
     if (listener) { listener.stop(); listener = null; }
@@ -250,10 +257,11 @@
       shouldStopEarly: (t) => K.similarity(item.text, t) >= Math.max(threshold, 0.9),
     });
     let spoken = '';
+    const trace = listener.trace;
     try { spoken = await listener.promise; } catch (err) {
       R.discard();
       if (token !== runToken) return 'wait';
-      setMic(micErrorMessage(err.message));
+      setMic(micErrorMessage(err.message) + diagnosis(trace));
       return 'wait';
     }
     listener = null;
@@ -263,14 +271,14 @@
     recordResult(state.index, score);
     showDiff(item, spoken, score);
     if (score >= threshold) { setMic('👏 좋아요!'); await sleep(700); return 'next'; }
-    setMic(spoken ? '조금 달라요. 다시 말하거나 통과 처리할 수 있어요.' : '소리가 들리지 않았어요. 마이크를 확인해 주세요.');
+    setMic(spoken ? '조금 달라요. 다시 말하거나 통과 처리할 수 있어요.' : '소리가 들리지 않았어요. 마이크를 확인해 주세요.' + diagnosis(trace));
     revealLine(item);
     setRetryButtons(true);
     return 'wait';
   }
 
   async function startRecording() {
-    if (state.opts.record === false || !R.canRecord) return false;
+    if (state.opts.record === false || !R.canRecord || RECORD_BLOCKS_SCORING) return false;
     try { await R.start(); return true; } catch (err) {
       setMic(err.name === 'NotAllowedError' ? permissionMessage() : '녹음을 시작하지 못해 녹음 없이 계속합니다.');
       return false;
@@ -333,6 +341,23 @@
   function resetReplayButton() {
     $('btn-replay-scene').textContent = '🎬 장면 다시 듣기';
     $('btn-replay-scene').onclick = replayScene;
+  }
+
+  // 인식이 실패했을 때 원인을 찾을 수 있게 이벤트 순서와 환경을 짧게 덧붙임
+  function diagnosis(trace) {
+    const ua = navigator.userAgent;
+    const os = PHONE_OS || 'PC';
+    const browser = /SamsungBrowser/.test(ua) ? 'Samsung' : /EdgA?\//.test(ua) ? 'Edge' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'etc';
+    const app = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone ? '앱' : '브라우저';
+    const mic = R.isMicOpen() ? ' · 녹음마이크 열림' : '';
+    return `\n[진단] ${os} ${browser} ${app}${mic} · ${(trace && trace.length ? trace.join(' → ') : '이벤트 없음')}`;
+  }
+
+  function phoneOS() {
+    const ua = navigator.userAgent;
+    if (/android/i.test(ua)) return 'Android';
+    if (/iphone|ipad|ipod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'iOS';
+    return '';
   }
 
   function micErrorMessage(code) {
@@ -476,7 +501,7 @@
     $('btn-parse').onclick = parseAndGo;
     $('btn-to-practice').onclick = goPractice;
     $('btn-auto-voices').onclick = autoAssignVoices;
-    $('btn-phone').onclick = () => $('phone-dialog').showModal();
+    $('btn-phone').onclick = () => { showPhoneQr(); $('phone-dialog').showModal(); };
     $('btn-play').onclick = () => {
       S.unlock();  // iOS는 첫 음성을 사용자 터치 안에서 내야 이후 낭독이 허용됨
       if (state.index >= state.items.length) { update({ index: 0, results: {} }); renderTranscript(); return play(); }
@@ -499,6 +524,49 @@
       const typing = ['TEXTAREA', 'INPUT', 'SELECT'].includes(document.activeElement.tagName);
       if (e.code === 'Space' && !typing && $('view-practice').classList.contains('active')) { e.preventDefault(); $('btn-next').click(); }
     });
+  }
+
+  // ---------- 휴대폰에서 열기 QR ----------
+  // 지금 접속한 주소로 QR을 만듦(Cloud Run·GitHub Pages 어디서 열든 같은 곳으로 연결).
+  // PC 로컬 실행(localhost·파일)은 휴대폰이 접속할 수 없으니 기본 이미지(공개 웹 주소)를 그대로 둠
+  const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]', ''];
+  let phoneQrUrl = null;
+
+  function showPhoneQr() {
+    if (typeof window.qrcode !== 'function' || LOCAL_HOSTS.includes(location.hostname)) return;
+    const url = location.origin + location.pathname.replace(/index\.html$/, '');
+    if (url === phoneQrUrl) return;
+    const img = $('phone-qr');
+    try { img.src = drawQr(url); } catch { return; }  // 주소가 너무 길어 QR에 안 들어가면 기본 이미지를 그대로 둠
+    phoneQrUrl = url;
+    img.alt = url + ' 로 연결되는 QR 코드';
+    $('phone-url').textContent = url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const icon = new Image();  // 가운데 앱 아이콘은 불러진 뒤 덧그림 (오류 정정 H라 가려져도 인식됨)
+    icon.onload = () => { if (phoneQrUrl === url) img.src = drawQr(url, icon); };
+    icon.src = 'assets/acting-practice.png';
+  }
+
+  function drawQr(text, icon) {
+    const qr = window.qrcode(0, 'H');
+    qr.addData(text);
+    qr.make();
+    const cell = 8, margin = 3 * cell, count = qr.getModuleCount();
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = count * cell + margin * 2;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#17130f';
+    for (let r = 0; r < count; r++) {
+      for (let c = 0; c < count; c++) if (qr.isDark(r, c)) ctx.fillRect(margin + c * cell, margin + r * cell, cell, cell);
+    }
+    if (icon) {
+      const size = Math.round(canvas.width / 5), pad = 8, at = (canvas.width - size) / 2;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(at - pad, at - pad, size + pad * 2, size + pad * 2);
+      ctx.drawImage(icon, at, at, size, size);
+    }
+    return canvas.toDataURL('image/png');
   }
 
   // ---------- 앱 설치 (PWA) ----------
@@ -524,6 +592,7 @@
     bindEvents();
     bindOptions();
     setupInstall();
+    window.addEventListener('pagehide', () => R.release());  // 앱을 닫거나 다른 화면으로 가면 마이크를 놓음
     S.onVoicesReady(() => { if (state.items.length) renderCast(); });
     if (state.items.length) renderCast();
     enableTabs();

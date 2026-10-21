@@ -67,6 +67,7 @@
         <label>상대 대사 속도 <input id="opt-rate" type="range" min="0.6" max="1.6" step="0.1" value="1"> <span id="opt-rate-val">1.0×</span></label>
         <label><input id="opt-directions" type="checkbox"> 지문도 읽어 주기</label>
         <label><input id="opt-record" type="checkbox" checked> 내 대사 녹음하기 <small>(이 창을 닫으면 사라짐)</small></label>
+        <p id="opt-record-note" class="note" hidden>📱 휴대폰에서는 음성 채점과 녹음을 동시에 할 수 없어, 채점을 우선하고 녹음은 하지 않습니다. 녹음해서 다시 들으려면 PC에서 연습하세요.</p>
         <label><input id="opt-ai-image" type="checkbox"> AI 장면 이미지 생성 <small>(장면 제목이 외부 이미지 서비스로 전송됨)</small></label>
       </fieldset>
       <div class="row"><span class="spacer"></span><button id="btn-to-practice" class="primary">연습 시작 →</button></div>
@@ -109,8 +110,8 @@
   <dialog id="phone-dialog" class="phone-dialog">
     <h2>📱 휴대폰에서 열기</h2>
     <p>휴대폰 카메라로 QR 코드를 찍으면 바로 열립니다.</p>
-    <img src="assets/qr-mobile.png" alt="https://artstock805.github.io/acting-practice/ 로 연결되는 QR 코드" width="220" height="220">
-    <p class="url">artstock805.github.io/acting-practice</p>
+    <img id="phone-qr" src="assets/qr-mobile.png" alt="https://artstock805.github.io/acting-practice/ 로 연결되는 QR 코드" width="220" height="220">
+    <p id="phone-url" class="url">artstock805.github.io/acting-practice</p>
     <ol>
       <li><b>Android</b>: Chrome으로 열고 위쪽 <b>📲 앱으로 설치</b> 또는 메뉴(⋮) → <b>홈 화면에 추가</b></li>
       <li><b>iPhone</b>: <b>Safari</b>로 열고 공유(□↑) → <b>홈 화면에 추가</b></li>
@@ -124,6 +125,7 @@
   <script src="voices.js"></script>
   <script src="speech.js"></script>
   <script src="recorder.js"></script>
+  <script src="vendor/qrcode.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
