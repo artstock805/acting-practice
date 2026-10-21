@@ -60,12 +60,14 @@ S#1. 카페 / 밤          ← 장면 제목
 | | 상대역 낭독 | 음성 채점 | 녹음 |
 |---|---|---|---|
 | Chrome / Edge (PC) | ✅ | ✅ | ✅ |
-| Chrome · 삼성 인터넷 (Android) | ✅ | ✅ | ❌ 채점 우선 (아래 참고) |
+| Chrome · 삼성 인터넷 (Android) | ✅ | ✅ | Cloud Run 판 ✅ · GitHub Pages 판 ❌ (아래 참고) |
 | Safari (Mac) | ✅ | ✅ (설정에서 Siri가 켜져 있어야 함) | ✅ |
-| Safari (iPhone, iOS 14.5+) | ✅ | ✅ (설정에서 Siri가 켜져 있어야 함) | ❌ 채점 우선 (아래 참고) |
+| Safari (iPhone, iOS 14.5+) | ✅ | ✅ (설정에서 Siri가 켜져 있어야 함) | Cloud Run 판 ✅ · GitHub Pages 판 ❌ (아래 참고) |
 | Firefox | ✅ | ❌ → 대사를 말한 뒤 ⏭ 누르기 | ✅ |
 
-- 휴대폰에서는 녹음이 마이크를 잡고 있으면 음성 인식에 소리가 들어가지 않아, **채점을 우선하고 녹음은 하지 않습니다.** 녹음해서 다시 들으려면 PC에서 연습하세요.
+- 휴대폰 브라우저는 녹음이 마이크를 잡고 있으면 음성 인식에 소리가 들어가지 않습니다.
+  - **Cloud Run 판**: 녹음을 서버로 보내 Google Speech-to-Text로 채점하므로 녹음과 채점이 둘 다 됩니다(말을 마치면 1~2초 뒤 결과).
+  - **GitHub Pages 판**(서버 없음): 채점을 우선하고 녹음은 하지 않습니다. 녹음해서 다시 들으려면 PC에서 연습하세요.
 
 - 음성 인식은 브라우저 제조사의 음성 서비스(구글·애플·MS)를 거치므로 인터넷이 필요할 수 있습니다.
 - iPhone에서는 처음 ▶ 시작을 눌러야 소리가 납니다. 마이크 권한 오류가 나면 🔁 다시 말하기를 한 번 눌러 주세요.
@@ -73,6 +75,7 @@ S#1. 카페 / 밤          ← 장면 제목
 
 ## 개인정보 · 저작권
 - 대본은 **내 브라우저 안에만 저장**되고 서버로 전송되지 않습니다. 녹음은 창을 닫으면 사라집니다.
+- Cloud Run 판을 휴대폰에서 녹음을 켜고 쓰면, 내 대사 녹음이 채점을 위해 서버를 거쳐 Google Speech-to-Text로 전송됩니다. 서버는 녹음을 저장하지 않습니다. (PC와 휴대폰 내장 음성 인식도 원래 구글·애플·MS 음성 서비스로 소리를 보냅니다.)
 - **AI 장면 이미지** 옵션을 켰을 때만 장면 제목이 외부 이미지 서비스(Pollinations)로 전송됩니다(기본 꺼짐).
 - 기성 대본을 개인 연습용으로 쓰는 것은 사적 이용 범위지만, **대본을 앱에 넣어 배포하거나 공유하지 마세요.** 들어 있는 예시 대본은 이 앱을 위해 새로 쓴 것입니다.
 
@@ -84,10 +87,15 @@ S#1. 카페 / 밤          ← 장면 제목
 - `vendor/qrcode.js` 📱 휴대폰에서 열기 QR을 지금 접속한 주소로 만드는 라이브러리([qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) 1.4.4, MIT). PC 로컬 실행에서는 `assets/qr-mobile.png`(공개 웹 주소)를 보여 줌
 
 ### Cloud Run에 올리기 (시험 배포)
-`Dockerfile` + `nginx.conf.template`로 정적 파일을 nginx로 서빙합니다. 내 PC에 Docker가 없어도 Cloud Build가 대신 빌드합니다.
+`server.js`(Node, 의존성 없음)가 정적 파일과 휴대폰 음성 인식 API(`POST /api/stt`)를 맡습니다. 내 PC에 Docker가 없어도 Cloud Build가 대신 빌드합니다.
 ```sh
-gcloud run deploy acting-practice --source . --project=acting-practice --region=asia-northeast3 --allow-unauthenticated --quiet
+gcloud run deploy acting-practice --source . --project=acting-practice --region=asia-northeast3 --allow-unauthenticated \
+  --service-account=acting-practice-run@acting-practice.iam.gserviceaccount.com --memory=256Mi --max-instances=3 --quiet
 ```
+- 음성 인식은 서비스 계정 권한으로 Google Speech-to-Text를 부르므로 **API 키가 필요 없습니다** (`speech.googleapis.com` 사용 설정 필요).
+- 남용 방지: 녹음 20초·1MB까지, IP당 분당 30회, 인스턴스 최대 3개
+- 로컬에서 서버까지 실행: `GCP_ACCESS_TOKEN=$(gcloud auth print-access-token) GCP_PROJECT=acting-practice node server.js` → http://localhost:8080
+- `audiokit.js` 무음 감지·WAV 변환 · `cloudstt.js` 휴대폰 녹음 → 서버 채점 흐름
 `main` 브랜치에 병합하면 GitHub Pages(https://artstock805.github.io/acting-practice/)에도 반영됩니다.
 
 MIT License

@@ -4,6 +4,7 @@
   const K = window.ScriptKit;
   const S = window.Speech;
   const R = window.Recorder;
+  const C = window.CloudSTT;
   const STORE_KEY = 'acting-practice-v1';
   const V = window.VoiceKit;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
@@ -12,6 +13,10 @@
   const PHONE_OS = phoneOS();
   // 휴대폰은 녹음이 마이크를 잡으면 음성 인식에 무음만 들어감 → 인식이 되는 휴대폰에선 채점을 우선하고 녹음은 하지 않음
   const RECORD_BLOCKS_SCORING = !!PHONE_OS && S.canListen;
+  // 서버(Cloud Run)가 있으면 휴대폰도 녹음 파일을 서버로 보내 채점 → 녹음과 채점을 둘 다 할 수 있음
+  let cloudReady = false;
+  const NOTE_PHONE_LOCAL = '📱 휴대폰에서는 음성 채점과 녹음을 동시에 할 수 없어, 채점을 우선하고 녹음은 하지 않습니다. 녹음해서 다시 들으려면 PC에서 연습하세요.';
+  const NOTE_PHONE_CLOUD = '📱 휴대폰에서는 녹음을 서버로 보내 채점합니다. 말을 마치면 1~2초 뒤에 결과가 나와요. 녹음을 끄면 휴대폰 내장 인식으로 바로 채점합니다.';
 
   let state = loadState() || { text: '', items: [], cast: {}, opts: { mode: 'hint', threshold: 70, rate: 1, directions: false, aiImage: false, record: true }, index: 0, results: {} };
   let runToken = 0;
@@ -177,13 +182,15 @@
     $('opt-rate').value = o.rate;
     $('opt-directions').checked = o.directions;
     $('opt-ai-image').checked = o.aiImage;
-    $('opt-record').checked = o.record !== false && !RECORD_BLOCKS_SCORING;
-    $('opt-record').disabled = RECORD_BLOCKS_SCORING;
+    const recordLocked = RECORD_BLOCKS_SCORING && !cloudReady;
+    $('opt-record').checked = o.record !== false && !recordLocked;
+    $('opt-record').disabled = recordLocked;
     $('opt-record-note').hidden = !RECORD_BLOCKS_SCORING;
+    $('opt-record-note').textContent = cloudReady ? NOTE_PHONE_CLOUD : NOTE_PHONE_LOCAL;
     const sync = () => {
       update({ opts: { mode: $('opt-mode').value, threshold: +$('opt-threshold').value, rate: +$('opt-rate').value,
         directions: $('opt-directions').checked, aiImage: $('opt-ai-image').checked,
-        record: RECORD_BLOCKS_SCORING ? o.record : $('opt-record').checked } });  // 휴대폰에서 강제로 끈 건 저장하지 않음
+        record: recordLocked ? o.record : $('opt-record').checked } });  // 휴대폰에서 강제로 끈 건 저장하지 않음
       $('opt-threshold-val').textContent = state.opts.threshold + '%';
       $('opt-rate-val').textContent = state.opts.rate.toFixed(1) + '×';
       if (!$('opt-record').checked) R.release();  // 녹음을 끄면 열어 둔 마이크도 바로 놓아 줌
@@ -249,6 +256,7 @@
       setRetryButtons(true);
       return 'wait';
     }
+    if (useCloudScoring()) return listenViaServer(item, token, threshold);
     const recording = await startRecording();
     if (token !== runToken) { R.discard(); return 'wait'; }
     setMic((recording ? '⏺ 녹음 중 · ' : '') + '듣고 있어요… 대사를 말해 주세요.', true);
@@ -267,14 +275,47 @@
     listener = null;
     if (token !== runToken) { R.discard(); return 'wait'; }
     if (recording) saveTake(state.index, await R.stop());
+    return judgeLine(item, spoken, threshold, diagnosis(trace));
+  }
+
+  // 휴대폰 + 서버: 녹음 → 말이 끝나면 자동 정지 → 서버가 글자로 바꿔 줌 → 채점. 녹음은 다시 듣기에 그대로 씀
+  async function listenViaServer(item, token, threshold) {
+    setMic('⏺ 녹음 중 · 듣고 있어요… 대사를 말해 주세요.', true);
+    listener = C.listen({ onPhase: () => { if (token === runToken) setMic('⏳ 채점 중…', true); } });
+    let result;
+    try { result = await listener.promise; } catch (err) {
+      listener = null;
+      if (token !== runToken) return 'wait';
+      setMic(cloudErrorMessage(err));
+      setRetryButtons(true);
+      return 'wait';
+    }
+    listener = null;
+    if (token !== runToken) return 'wait';
+    if (result.blob) saveTake(state.index, result.blob);
+    return judgeLine(item, result.text, threshold, '');
+  }
+
+  function useCloudScoring() {
+    return RECORD_BLOCKS_SCORING && cloudReady && state.opts.record !== false && R.canRecord;
+  }
+
+  async function judgeLine(item, spoken, threshold, failDetail) {
     const score = K.similarity(item.text, spoken);
     recordResult(state.index, score);
     showDiff(item, spoken, score);
     if (score >= threshold) { setMic('👏 좋아요!'); await sleep(700); return 'next'; }
-    setMic(spoken ? '조금 달라요. 다시 말하거나 통과 처리할 수 있어요.' : '소리가 들리지 않았어요. 마이크를 확인해 주세요.' + diagnosis(trace));
+    setMic(spoken ? '조금 달라요. 다시 말하거나 통과 처리할 수 있어요.' : '소리가 들리지 않았어요. 마이크를 확인해 주세요.' + failDetail);
     revealLine(item);
     setRetryButtons(true);
     return 'wait';
+  }
+
+  function cloudErrorMessage(err) {
+    if (err.name === 'NotAllowedError') return permissionMessage();
+    if (err.name === 'NotFoundError') return NO_MIC_MESSAGE;
+    if (err.server) return '🌐 ' + err.message + ' 🔁 다시 말하기를 누르세요.';
+    return '🌐 음성을 서버로 보내지 못했습니다. 인터넷 연결을 확인하고 🔁 다시 말하기를 누르세요.';
   }
 
   async function startRecording() {
@@ -593,6 +634,7 @@
     bindOptions();
     setupInstall();
     window.addEventListener('pagehide', () => R.release());  // 앱을 닫거나 다른 화면으로 가면 마이크를 놓음
+    if (RECORD_BLOCKS_SCORING) C.checkAvailable().then((ok) => { cloudReady = ok; if (ok) bindOptions(); });
     S.onVoicesReady(() => { if (state.items.length) renderCast(); });
     if (state.items.length) renderCast();
     enableTabs();
