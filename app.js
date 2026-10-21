@@ -581,8 +581,8 @@
   }
 
   // ---------- 휴대폰에서 열기 QR ----------
-  // 지금 접속한 주소로 QR을 만듦(Cloud Run·GitHub Pages 어디서 열든 같은 곳으로 연결).
-  // PC 로컬 실행(localhost·파일)은 휴대폰이 접속할 수 없으니 기본 이미지(공개 웹 주소)를 그대로 둠
+  // 지금 접속한 주소로 QR을 만듦(어느 주소로 열든 같은 곳으로 연결).
+  // PC 로컬 실행(localhost·파일)은 휴대폰이 접속할 수 없으니 기본 이미지(Cloud Run 주소)를 그대로 둠
   const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]', ''];
   let phoneQrUrl = null;
 

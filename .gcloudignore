@@ -1,8 +1,7 @@
-# Cloud Build로 올릴 때 제외할 파일 (Dockerfile이 필요한 파일만 골라 복사함)
+# Cloud Build로 올릴 때 제외할 파일. 테스트 파일은 빌드의 test 단계에 필요해 올림 (이미지에는 Dockerfile이 고른 파일만 들어감)
 .git/
 .claude/
 node_modules/
-*.test.js
 *.ps1
 *.bat
 *.sh

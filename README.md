@@ -5,7 +5,7 @@
 
 ## 바로 쓰기 (PC · 휴대폰 공통, 설치 없음)
 
-👉 **https://artstock805.github.io/acting-practice/**
+👉 **https://acting-practice-160629403411.asia-northeast3.run.app/**
 
 Chrome, Edge, Safari에서 열고 마이크를 허용하면 됩니다.
 
@@ -23,7 +23,7 @@ Chrome, Edge, Safari에서 열고 마이크를 허용하면 됩니다.
 한 번 설치하면 홈 화면 아이콘으로 열리고, 인터넷이 없어도 화면은 열립니다(음성 인식은 인터넷이 필요할 수 있음).
 
 ## Windows에 내려받아 쓰기 (오프라인 · 추가 설치 불필요)
-1. 이 페이지 위쪽 **Code → Download ZIP**으로 받아 원하는 곳에 압축을 풉니다.
+1. 저장소 접근 권한이 있는 계정으로 `git clone` 하거나 **Code → Download ZIP**으로 받아 원하는 곳에 압축을 풉니다. (비공개 저장소)
 2. 폴더 안의 **`install.bat`**을 더블클릭합니다. 바탕화면과 시작 메뉴에 🎭 아이콘이 생깁니다.
 3. 아이콘을 누르면 앱 창으로 열립니다. 창을 닫으면 뒤에서 돌던 로컬 서버도 같이 꺼집니다.
 
@@ -60,14 +60,14 @@ S#1. 카페 / 밤          ← 장면 제목
 | | 상대역 낭독 | 음성 채점 | 녹음 |
 |---|---|---|---|
 | Chrome / Edge (PC) | ✅ | ✅ | ✅ |
-| Chrome · 삼성 인터넷 (Android) | ✅ | ✅ | Cloud Run 판 ✅ · GitHub Pages 판 ❌ (아래 참고) |
+| Chrome · 삼성 인터넷 (Android) | ✅ | ✅ | ✅ 서버 채점 (아래 참고) |
 | Safari (Mac) | ✅ | ✅ (설정에서 Siri가 켜져 있어야 함) | ✅ |
-| Safari (iPhone, iOS 14.5+) | ✅ | ✅ (설정에서 Siri가 켜져 있어야 함) | Cloud Run 판 ✅ · GitHub Pages 판 ❌ (아래 참고) |
+| Safari (iPhone, iOS 14.5+) | ✅ | ✅ (설정에서 Siri가 켜져 있어야 함) | ✅ 서버 채점 (아래 참고, 실기기 확인 전) |
 | Firefox | ✅ | ❌ → 대사를 말한 뒤 ⏭ 누르기 | ✅ |
 
 - 휴대폰 브라우저는 녹음이 마이크를 잡고 있으면 음성 인식에 소리가 들어가지 않습니다.
-  - **Cloud Run 판**: 녹음을 서버로 보내 Google Speech-to-Text로 채점하므로 녹음과 채점이 둘 다 됩니다(말을 마치면 1~2초 뒤 결과).
-  - **GitHub Pages 판**(서버 없음): 채점을 우선하고 녹음은 하지 않습니다. 녹음해서 다시 들으려면 PC에서 연습하세요.
+  - 그래서 휴대폰은 녹음을 서버로 보내 Google Speech-to-Text로 채점합니다. 녹음과 채점이 둘 다 됩니다(말을 마치면 1~2초 뒤 결과).
+  - 서버가 없는 곳(PC에서 `start.bat` 등으로 로컬 실행)에서 휴대폰으로 열면: 채점을 우선하고 녹음은 하지 않습니다.
 
 - 음성 인식은 브라우저 제조사의 음성 서비스(구글·애플·MS)를 거치므로 인터넷이 필요할 수 있습니다.
 - iPhone에서는 처음 ▶ 시작을 눌러야 소리가 납니다. 마이크 권한 오류가 나면 🔁 다시 말하기를 한 번 눌러 주세요.
@@ -84,18 +84,20 @@ S#1. 카페 / 밤          ← 장면 제목
 - `parser.js` 대본 해석·채점·분위기 추정 · `voices.js` 인물별 목소리 배분 · `speech.js` 음성 합성/인식 · `recorder.js` 녹음 · `app.js` 화면 흐름
 - `sw.js` + `manifest.webmanifest` 앱 설치(PWA) · `serve.ps1` / `launch.ps1` / `install.ps1` Windows 실행기
 - 아이콘 다시 만들기: `python assets/make_icon.py` (Pillow 필요)
-- `vendor/qrcode.js` 📱 휴대폰에서 열기 QR을 지금 접속한 주소로 만드는 라이브러리([qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) 1.4.4, MIT). PC 로컬 실행에서는 `assets/qr-mobile.png`(공개 웹 주소)를 보여 줌
+- `vendor/qrcode.js` 📱 휴대폰에서 열기 QR을 지금 접속한 주소로 만드는 라이브러리([qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) 1.4.4, MIT). PC 로컬 실행에서는 `assets/qr-mobile.png`(Cloud Run 주소)를 보여 줌
 
-### Cloud Run에 올리기 (시험 배포)
-`server.js`(Node, 의존성 없음)가 정적 파일과 휴대폰 음성 인식 API(`POST /api/stt`)를 맡습니다. 내 PC에 Docker가 없어도 Cloud Build가 대신 빌드합니다.
+### 배포 (Google Cloud Build → Cloud Run)
+`server.js`(Node, 의존성 없음)가 정적 파일과 휴대폰 음성 인식 API(`POST /api/stt`)를 맡습니다. 배포는 `cloudbuild.yaml`이 **테스트 → 이미지 빌드 → Artifact Registry → Cloud Run** 순서로 합니다(테스트가 실패하면 배포 안 함). 내 PC에 Docker가 없어도 됩니다.
+- **자동**: `main` 브랜치에 푸시(병합)하면 Cloud Build 트리거가 배포
+- **수동**:
 ```sh
-gcloud run deploy acting-practice --source . --project=acting-practice --region=asia-northeast3 --allow-unauthenticated \
-  --service-account=acting-practice-run@acting-practice.iam.gserviceaccount.com --memory=256Mi --max-instances=3 --quiet
+gcloud builds submit --config cloudbuild.yaml --project=acting-practice --region=asia-northeast3 .
 ```
+- 서비스 계정: 빌드 `acting-practice-build`(Cloud Run 배포·이미지 업로드·로그만), 실행 `acting-practice-run`(Speech 사용량만)
+- 비용: GCP 예산 알림 월 5,000원(50·90·100%에서 메일)
 - 음성 인식은 서비스 계정 권한으로 Google Speech-to-Text를 부르므로 **API 키가 필요 없습니다** (`speech.googleapis.com` 사용 설정 필요).
 - 남용 방지: 녹음 20초·1MB까지, IP당 분당 30회, 인스턴스 최대 3개
 - 로컬에서 서버까지 실행: `GCP_ACCESS_TOKEN=$(gcloud auth print-access-token) GCP_PROJECT=acting-practice node server.js` → http://localhost:8080
 - `audiokit.js` 무음 감지·WAV 변환 · `cloudstt.js` 휴대폰 녹음 → 서버 채점 흐름
-`main` 브랜치에 병합하면 GitHub Pages(https://artstock805.github.io/acting-practice/)에도 반영됩니다.
 
 MIT License
