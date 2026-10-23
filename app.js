@@ -10,7 +10,7 @@
   const V = window.VoiceKit;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v19';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v20';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
   const $ = (id) => document.getElementById(id);
   const PHONE_OS = phoneOS();
@@ -199,19 +199,22 @@
     renderCast();
   }
 
-  // 대사 중간의 괄호 지문: '지문도 읽어 주기'를 켰을 때만 화면에 보이고 해설 목소리로 읽음.
-  // 채점·힌트·말 끝 기다리기는 항상 지문을 뺀 대사로 (지문을 소리 내 읽을 필요 없음)
+  // 대사 속 괄호 지문: 화면에는 항상 보이고, '지문도 읽어 주기'를 켰을 때만 해설 목소리로 읽음.
+  // 채점·말 끝 기다리기는 항상 지문을 뺀 대사로 (지문을 소리 내 읽을 필요 없음)
   const speechOf = (item) => K.spokenText(item.text);
-  const shownText = (item) => (state.opts.directions ? item.text : speechOf(item));
+  const shownText = (item) => item.text;  // 대사 속 괄호 지문은 옵션과 상관없이 항상 보여 줌
+  // 대사 맨 앞 괄호("(웃으며) 그래요")는 note로 따로 저장됨. 대본 목록과 낭독에는 다시 붙여 넣음
+  // (대사 카드에는 이름 옆 쪽지로 이미 보이므로 카드 본문에는 넣지 않음)
+  const withNote = (item) => (item.note ? `(${item.note}) ${item.text}` : item.text);
+  const listText = withNote;
 
   // 첫 글자 힌트: 외울 대사만 줄이고, 보이는 지문은 그대로 둠 ("그… (웃으며) 가…")
   function hintText(item) {
-    if (!state.opts.directions) return K.firstLetterHint(speechOf(item));
     return K.splitAsides(item.text).map((p) => (p.aside ? `(${p.text})` : K.firstLetterHint(p.text))).join(' ');
   }
 
   async function speakLine(item, token) {
-    const parts = state.opts.directions ? K.splitAsides(item.text) : [{ text: speechOf(item), aside: false }];
+    const parts = state.opts.directions ? K.splitAsides(withNote(item)) : [{ text: speechOf(item), aside: false }];
     for (const part of parts) {
       if (token !== runToken || !part.text) continue;
       await S.speak(part.text, part.aside ? voiceCfg(NARRATOR) : voiceCfg(item.character, item));
@@ -616,7 +619,7 @@
     const mine = state.cast[item.character] && state.cast[item.character].mine;
     const li = el('li', { className: mine ? 'mine' : '' });
     li.dataset.index = index;
-    li.append(el('b', { textContent: item.character }), shownText(item));
+    li.append(el('b', { textContent: item.character }), listText(item));
     if (takes[index]) {
       const play = el('button', { className: 'take', textContent: '🎧', title: '내 녹음 듣기' });
       play.onclick = (e) => { e.stopPropagation(); R.play(takes[index]); };
