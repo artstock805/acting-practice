@@ -167,3 +167,17 @@ test('colon scripts with repeated openers do not gain fake speakers', () => {
     '지연: 몰라.', '그래 그럼 그렇게 해', '민수: 그래.', '우리 둘 다 웃는다', '지연: 응.', '그래 하고 퇴장'].join('\n');
   assert.deepStrictEqual(K.listCharacters(K.parseScript(script)).map((c) => c.name).sort(), ['민수', '지연']);
 });
+
+test('"[이름] 대사" format is dialogue; [BGM]-style stage tags are not names', () => {
+  const items = K.parseScript('[BGM] 서울의 찬가\n[상범] 오늘도 늦었네.\n[용자] (웃으며) 안녕하세요?\n[Effect] 새소리\n[상범]\n');
+  const lines = items.filter((i) => i.type === 'line');
+  assert.deepStrictEqual(lines.map((l) => [l.character, l.text, l.note]), [['상범', '오늘도 늦었네.', ''], ['용자', '안녕하세요?', '웃으며']]);
+  // 대사 없는 '[상범]'은 기존처럼 괄호를 벗긴 지문
+  assert.deepStrictEqual(items.filter((i) => i.type === 'direction').map((d) => d.text), ['[BGM] 서울의 찬가', '[Effect] 새소리', '상범']);
+});
+
+test('in a "[이름] 대사" script the title and headings are not screenplay names', () => {
+  const script = ['국물 있사옵니다', '이근삼', '등장인물', '김상범', '', '무대', '어떤 아파트의 방.', '',
+    '[상범] 오늘도 늦었네.', '[용자] 안녕하세요?', '[상범] 네.', '[용자] 가요.'].join('\n');
+  assert.deepStrictEqual(K.listCharacters(K.parseScript(script)).map((c) => c.name).sort(), ['상범', '용자']);
+});

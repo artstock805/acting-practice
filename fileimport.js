@@ -251,6 +251,82 @@
     };
   }
 
+  // ---------- 한글 97 (.hwp 3.0) ----------
+  // 구조: 서명 30바이트 + 문서 정보 128 + 요약 1008 + 정보 블록 + (압축된) 본문.
+  // 본문은 글꼴·스타일·문단 머리·표·그림 같은 구조가 섞여 있는데, 문단 글자는 항상 'hchar 글자들 + 문단 끝(13)'으로 끝남.
+  // 그래서 구조를 다 해석하지 않고 본문에서 그런 묶음을 찾아 순서대로 이어 붙임 (표 안 글자도 함께 나옴)
+  const HWP3_SIG = 'HWP Document File V3.00';
+  const HWP3_HEADER = 30;
+  const HWP3_INFO = 128;
+  const HWP3_SUMMARY = 1008;
+  // 조합형 중성 코드 → 유니코드 중성 순서
+  const JOHAB_MEDIAL = { 3: 0, 4: 1, 5: 2, 6: 3, 7: 4, 10: 5, 11: 6, 12: 7, 13: 8, 14: 9, 15: 10, 18: 11, 19: 12, 20: 13, 21: 14, 22: 15, 23: 16, 26: 17, 27: 18, 28: 19, 29: 20 };
+  const HWP3_SYMBOL_BASE = 0x3400;   // 0x3400 + n → 완성형 기호표 n번째 (A1A1부터)
+  const HWP3_HANJA_BASE = 0x4000;    // 0x4000 + n → 완성형 한자표 n번째 (CAA1부터)
+  const KS_ROW = 94;
+
+  function johabToHangul(c) {
+    const ini = (c >> 10) & 31;
+    const med = JOHAB_MEDIAL[(c >> 5) & 31];
+    const f = c & 31;
+    if (ini < 2 || ini > 20 || med === undefined) return null;
+    let fin;
+    if (f === 1) fin = 0; else if (f >= 2 && f <= 17) fin = f - 1; else if (f >= 19 && f <= 29) fin = f - 2; else return null;
+    return String.fromCharCode(0xac00 + ((ini - 2) * 21 + med) * 28 + fin);
+  }
+
+  // 기호·한자: 완성형(EUC-KR) 두 바이트로 바꿔 브라우저 디코더로 읽음
+  const ksDecoder = new TextDecoder('euc-kr');
+  function hwp3SymbolOrHanja(c) {
+    let lead;
+    let n;
+    if (c > HWP3_SYMBOL_BASE && c < HWP3_HANJA_BASE) { n = c - HWP3_SYMBOL_BASE - 1; lead = 0xa1; }
+    else if (c >= HWP3_HANJA_BASE && c < 0x8000) { n = c - HWP3_HANJA_BASE; lead = 0xca; }
+    else return null;
+    const hi = lead + Math.floor(n / KS_ROW);
+    if (hi > 0xfe) return null;
+    const ch = ksDecoder.decode(Uint8Array.of(hi, 0xa1 + (n % KS_ROW)));
+    return ch === '�' ? null : ch;
+  }
+
+  // hchar 하나 → 글자 (글자가 아니면 null)
+  function hwp3Char(c) {
+    if (c >= 32 && c < 127) return String.fromCharCode(c);
+    if (c >= 0x8000) return johabToHangul(c);
+    return hwp3SymbolOrHanja(c);
+  }
+
+  async function hwp3Text(b, inflateRaw) {
+    const info = HWP3_HEADER;
+    if (u16(b, info + 96)) fail('암호가 걸린 한글 97 파일입니다. 한글에서 암호를 풀고 저장한 뒤 다시 열어 주세요.');
+    const start = HWP3_HEADER + HWP3_INFO + HWP3_SUMMARY + u16(b, info + 126);
+    const rest = b.subarray(start);
+    const body = b[info + 124] ? await inflateRaw(rest) : rest;
+    // 문단이 짝수·홀수 어느 위치에서 시작할지 모르므로 두 경우를 모두 훑고 위치 순으로 합침
+    const runs = [];
+    for (const parity of [0, 1]) {
+      let at = -1;
+      let text = '';
+      let hangul = 0;
+      for (let p = parity; p + 1 < body.length; p += 2) {
+        const c = u16(body, p);
+        if (c === 13) {
+          if (at >= 0 && hangul > 0) runs.push({ at, text });
+          at = -1; text = ''; hangul = 0;
+          continue;
+        }
+        if (c === 9 && at >= 0) { text += '\t'; p += 4; continue; }   // 탭: [9, 폭, 9]
+        const ch = hwp3Char(c);
+        if (ch === null) { at = -1; text = ''; hangul = 0; continue; }
+        if (at < 0) at = p;
+        if (c >= 0x8000) hangul++;
+        text += ch;
+      }
+    }
+    runs.sort((x, y) => x.at - y.at);
+    return { format: 'hwp3', text: runs.map((r) => r.text).join('\n') };
+  }
+
   // ---------- 한글 .hwp 5.0 ----------
   const HWPTAG_PARA_TEXT = 67;
   // 8 WCHAR짜리 컨트롤(인라인·확장): 이 코드 뒤 7 WCHAR는 글자가 아님. 9(탭)도 여기에 속함
@@ -471,8 +547,29 @@
       .trim();
   }
 
-  // 브라우저 기본 압축 해제 (Chrome 80+, Safari 16.4+). 풀린 크기가 한도를 넘으면 멈춤 (압축 폭탄 방지)
-  async function browserInflateRaw(data) {
+  // 압축 해제: fflate(vendor/fflate.js)를 씀. 브라우저 기본 해제기(DecompressionStream)는 압축 데이터 뒤에
+  // 다른 데이터가 붙어 있으면(한글 97 파일이 그렇다) 오류를 내고 풀던 내용까지 버림. 풀린 크기가 한도를 넘으면 멈춤 (압축 폭탄 방지)
+  const INFLATE_STEP = 64 * 1024;
+  function makeInflateRaw(lib, cap = MAX_INFLATED_BYTES) {
+    return async (data) => {
+      const chunks = [];
+      let total = 0;
+      const inflater = new lib.Inflate((chunk) => {
+        total += chunk.length;
+        if (total > cap) fail('압축을 푼 크기가 너무 큽니다. 대본 파일이 맞는지 확인해 주세요.');
+        chunks.push(chunk);
+      });
+      for (let i = 0; i < data.length; i += INFLATE_STEP) inflater.push(data.subarray(i, i + INFLATE_STEP), i + INFLATE_STEP >= data.length);
+      if (!data.length) inflater.push(new Uint8Array(0), true);
+      const out = new Uint8Array(total);
+      let off = 0;
+      chunks.forEach((c) => { out.set(c, off); off += c.length; });
+      return out;
+    };
+  }
+
+  // fflate를 못 불러온 경우의 대비: 브라우저 기본 압축 해제 (Chrome 80+, Safari 16.4+)
+  async function streamInflateRaw(data) {
     const reader = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader();
     const chunks = [];
     let total = 0;
@@ -500,12 +597,15 @@
     }
   }
 
-  async function extractUnchecked(file, { inflateRaw = browserInflateRaw, baseUrl = root.location && root.location.href } = {}) {
+  const defaultInflateRaw = (data) => (root.fflate ? makeInflateRaw(root.fflate)(data) : streamInflateRaw(data));
+
+  async function extractUnchecked(file, { inflateRaw = defaultInflateRaw, baseUrl = root.location && root.location.href } = {}) {
     if (file.bytes.length > MAX_FILE_BYTES) fail(`파일이 너무 큽니다(${Math.round(MAX_FILE_BYTES / 1024 / 1024)}MB까지).`);
     const b = file.bytes;
     if (!b.length) fail('파일이 비어 있습니다.');
     let result;
     if (startsWith(b, SIG.pdf)) result = await pdfText(b, baseUrl);
+    else if (latin1(b.subarray(0, HWP3_SIG.length)) === HWP3_SIG) result = await hwp3Text(b, inflateRaw);
     else if (startsWith(b, SIG.zip)) result = await zipText(b, inflateRaw);
     else if (startsWith(b, SIG.cfb)) {
       const cfb = readCfb(b);
@@ -526,7 +626,7 @@
     return { format: result.format, text };
   }
 
-  const api = { MAX_FILE_BYTES, MAX_INFLATED_BYTES, ImportError, extractScriptText, decodeText, xmlToText, readZip, readCfb, rtfText, pdfPageText, pdfPageRows, joinPdfRows, tidy };
+  const api = { MAX_FILE_BYTES, MAX_INFLATED_BYTES, ImportError, makeInflateRaw, extractScriptText, decodeText, xmlToText, readZip, readCfb, rtfText, pdfPageText, pdfPageRows, joinPdfRows, tidy };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.FileImport = api;
 })(this);
