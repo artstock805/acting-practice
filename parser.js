@@ -185,6 +185,32 @@
     return code >= 0 && code <= 11171 && code % 28 ? '과' : '와';
   }
 
+  // ---------- 대사 중간의 괄호 지문 ----------
+  // "네? (용자가 가버린다) 아… 저…" → 말하는 부분과 지문을 차례대로 나눔. 닫히지 않은 괄호는 대사로 둠
+  const ASIDE_RE = /[(（]([^()（）]*)[)）]/g;
+
+  function splitAsides(text) {
+    const s = String(text || '');
+    const out = [];
+    let last = 0;
+    let m;
+    ASIDE_RE.lastIndex = 0;
+    while ((m = ASIDE_RE.exec(s))) {
+      const before = s.slice(last, m.index).trim();
+      if (before) out.push({ text: before, aside: false });
+      if (m[1].trim()) out.push({ text: m[1].trim(), aside: true });
+      last = m.index + m[0].length;
+    }
+    const rest = s.slice(last).trim();
+    if (rest) out.push({ text: rest, aside: false });
+    return out;
+  }
+
+  // 지문을 뺀, 실제로 말하는 대사 (채점·힌트·낭독용)
+  function spokenText(text) {
+    return splitAsides(text).filter((p) => !p.aside).map((p) => p.text).join(' ').replace(/\s+/g, ' ').trim();
+  }
+
   function listCharacters(items) {
     const counts = new Map();
     items.filter((i) => i.type === 'line').forEach((i) => counts.set(i.character, (counts.get(i.character) || 0) + 1));
@@ -375,7 +401,7 @@
   function detectMood(text) { return findByWords(MOODS, text); }
   function detectEmotion(text) { return findByWords(EMOTIONS, text); }
 
-  const api = { parseScript, findSpokenNames, listCharacters, suggestNameMerges, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, firstLetterHint, detectMood, detectEmotion, normalize };
+  const api = { parseScript, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, firstLetterHint, detectMood, detectEmotion, normalize };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ScriptKit = api;
 })(this);

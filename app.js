@@ -10,7 +10,7 @@
   const V = window.VoiceKit;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v16';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v17';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
   const $ = (id) => document.getElementById(id);
   const PHONE_OS = phoneOS();
@@ -198,6 +198,25 @@
     renderCast();
   }
 
+  // 대사 중간의 괄호 지문: '지문도 읽어 주기'를 켰을 때만 화면에 보이고 해설 목소리로 읽음.
+  // 채점·힌트·말 끝 기다리기는 항상 지문을 뺀 대사로 (지문을 소리 내 읽을 필요 없음)
+  const speechOf = (item) => K.spokenText(item.text);
+  const shownText = (item) => (state.opts.directions ? item.text : speechOf(item));
+
+  // 첫 글자 힌트: 외울 대사만 줄이고, 보이는 지문은 그대로 둠 ("그… (웃으며) 가…")
+  function hintText(item) {
+    if (!state.opts.directions) return K.firstLetterHint(speechOf(item));
+    return K.splitAsides(item.text).map((p) => (p.aside ? `(${p.text})` : K.firstLetterHint(p.text))).join(' ');
+  }
+
+  async function speakLine(item, token) {
+    const parts = state.opts.directions ? K.splitAsides(item.text) : [{ text: speechOf(item), aside: false }];
+    for (const part of parts) {
+      if (token !== runToken || !part.text) continue;
+      await S.speak(part.text, part.aside ? voiceCfg(NARRATOR) : voiceCfg(item.character, item));
+    }
+  }
+
   function voiceCfg(name, item) {
     const v = name === NARRATOR ? NARRATOR_VOICE : V.resolveVoice(state.cast[name]);
     const emotion = item ? K.detectEmotion(item.note) : null;
@@ -272,7 +291,8 @@
       if (state.opts.directions) await S.speak(item.text, voiceCfg(NARRATOR)); else await sleep(700);
       return 'next';
     }
-    if (!state.cast[item.character].mine) { await S.speak(item.text, voiceCfg(item.character, item)); return 'next'; }
+    if (!state.cast[item.character].mine) { await speakLine(item, token); return 'next'; }
+    if (!speechOf(item)) { await sleep(700); return 'next'; }   // 내 대사가 지문뿐이면 말할 게 없음
     if (!S.canListen) return 'wait';
     return listenForLine(item, token);
   }
@@ -294,9 +314,9 @@
     setMic((recording ? '⏺ 녹음 중 · ' : '') + '듣고 있어요… 대사를 말해 주세요.', true);
     listener = S.listen({
       onInterim: (t) => setMic('🎙 ' + t, true),
-      shouldStopEarly: (t) => K.similarity(item.text, t) >= Math.max(threshold, 0.9),
-      silenceMs: K.silenceForLine(item.text),
-      pickAlternative: (soFar, alternatives) => K.bestAlternative(item.text, soFar, alternatives),
+      shouldStopEarly: (t) => K.similarity(speechOf(item), t) >= Math.max(threshold, 0.9),
+      silenceMs: K.silenceForLine(speechOf(item)),
+      pickAlternative: (soFar, alternatives) => K.bestAlternative(speechOf(item), soFar, alternatives),
     });
     let spoken = '';
     const trace = listener.trace;
@@ -316,8 +336,8 @@
   async function listenViaServer(item, token, threshold) {
     setMic('⏺ 녹음 중 · 듣고 있어요… 대사를 말해 주세요.', true);
     listener = C.listen({
-      hint: item.text,
-      silenceMs: K.silenceForLine(item.text),
+      hint: speechOf(item),
+      silenceMs: K.silenceForLine(speechOf(item)),
       onPhase: (phase, ms) => {
         if (token !== runToken) return;
         if (phase === 'timed') setMic(`⏺ 녹음 중 · 대사를 말해 주세요 (${ms / 1000}초 동안 녹음)`, true);
@@ -336,7 +356,7 @@
     listener = null;
     if (token !== runToken) return 'wait';
     if (result.blob) saveTake(state.index, result.blob);
-    return judgeLine(item, pickFromSegments(item.text, result), threshold, cloudDiagnosis(diag));
+    return judgeLine(item, pickFromSegments(speechOf(item), result), threshold, cloudDiagnosis(diag));
   }
 
   // 서버가 구간마다 준 인식 후보 중 대사에 가장 가까운 것을 앞에서부터 골라 이어 붙임
@@ -356,7 +376,7 @@
   }
 
   async function judgeLine(item, spoken, threshold, failDetail) {
-    const score = K.similarity(item.text, spoken);
+    const score = K.similarity(speechOf(item), spoken);
     recordResult(state.index, score);
     showDiff(item, spoken, score);
     if (score >= threshold) { setMic('👏 좋아요!'); await sleep(700); return 'next'; }
@@ -428,7 +448,7 @@
         if (takes[i]) await R.play(takes[i]); else await sleep(1500);
       } else {
         setMic('');
-        await S.speak(item.text, voiceCfg(item.character, item));
+        await speakLine(item, token);
       }
     }
     if (token === runToken) { setMic('장면 재생 끝'); resetReplayButton(); }
@@ -500,7 +520,7 @@
     if (item.type !== 'line') return;
     const mine = state.cast[item.character] && state.cast[item.character].mine;
     const mode = state.opts.mode;
-    const text = mine && mode === 'hint' ? K.firstLetterHint(item.text) : item.text;
+    const text = mine && mode === 'hint' ? hintText(item) : shownText(item);
     renderLineCard({ who: item.character + (mine ? ' (나)' : ''), note: item.note, text, mine, hidden: mine && mode === 'hidden' });
   }
 
@@ -514,13 +534,13 @@
     $('line-card').classList.toggle('is-mine', !!mine);
   }
 
-  function revealLine(item) { $('line-text').textContent = item.text; $('line-text').classList.remove('is-hidden'); }
+  function revealLine(item) { $('line-text').textContent = shownText(item); $('line-text').classList.remove('is-hidden'); }
 
   function showDiff(item, spoken, score) {
     const box = $('line-diff');
     box.textContent = '';
     box.append(el('span', { className: 'score', textContent: Math.round(score * 100) + '%' }));
-    K.wordDiff(item.text, spoken).forEach((w) => { box.append(el('span', { className: 'w ' + (w.ok ? 'ok' : 'bad'), textContent: w.word })); box.append(' '); });
+    K.wordDiff(speechOf(item), spoken).forEach((w) => { box.append(el('span', { className: 'w ' + (w.ok ? 'ok' : 'bad'), textContent: w.word })); box.append(' '); });
   }
 
   function sceneMood(scene) {
@@ -559,7 +579,7 @@
       const mine = state.cast[item.character] && state.cast[item.character].mine;
       const li = el('li', { className: mine ? 'mine' : '' });
       li.dataset.index = index;
-      li.append(el('b', { textContent: item.character }), item.text);
+      li.append(el('b', { textContent: item.character }), shownText(item));
       if (takes[index]) {
         const play = el('button', { className: 'take', textContent: '🎧', title: '내 녹음 듣기' });
         play.onclick = (e) => { e.stopPropagation(); R.play(takes[index]); };
