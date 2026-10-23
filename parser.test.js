@@ -181,3 +181,31 @@ test('in a "[이름] 대사" script the title and headings are not screenplay na
     '[상범] 오늘도 늦었네.', '[용자] 안녕하세요?', '[상범] 네.', '[용자] 가요.'].join('\n');
   assert.deepStrictEqual(K.listCharacters(K.parseScript(script)).map((c) => c.name).sort(), ['상범', '용자']);
 });
+
+// ---------- 인물 이름 오타 합치기 제안 ----------
+const CAST = [['상범', 328], ['아미', 82], ['사장', 58], ['소희', 52], ['상학', 50], ['상출', 46], ['탱크', 38], ['용자', 22], ['영민', 19],
+  ['관리인', 15], ['문여사', 15], ['배영민', 14], ['서희', 2], ['뮨여사', 1], ['학', 1], ['출', 1], ['상을', 1]].map(([name, lines]) => ({ name, lines }));
+const merges = (cast) => Object.fromEntries(K.suggestNameMerges(cast).map((s) => [s.from, s.to]));
+
+test('name typos from a real script are suggested for merging into the right character', () => {
+  const m = merges(CAST);
+  assert.deepStrictEqual(m['서희'], ['소희']);        // 한 자모 차이
+  assert.deepStrictEqual(m['뮨여사'], ['문여사']);
+  assert.deepStrictEqual(m['학'], ['상학']);          // 이름 끝부분만 씀
+  assert.deepStrictEqual(m['출'], ['상출']);
+  assert.deepStrictEqual(m['배영민'], ['영민']);      // 성을 붙인 전체 이름 → 많이 쓴 쪽으로
+  assert.ok(m['상을'] && m['상을'].includes('상출')); // 애매하면 후보로
+});
+
+test('real, distinct characters are not suggested', () => {
+  const m = merges(CAST);
+  ['상범', '아미', '사장', '소희', '상학', '상출', '탱크', '용자', '영민', '관리인', '문여사'].forEach((n) => assert.strictEqual(m[n], undefined, n));
+  // 비슷하지만 둘 다 대사가 많은 인물은 서로 다른 사람으로 봄
+  assert.deepStrictEqual(K.suggestNameMerges([{ name: '민수', lines: 30 }, { name: '민호', lines: 25 }]), []);
+});
+
+test('each suggestion says why and lists at most three candidates, rare names first', () => {
+  const s = K.suggestNameMerges(CAST);
+  assert.ok(s.every((x) => x.to.length >= 1 && x.to.length <= 3 && typeof x.reason === 'string' && x.reason));
+  assert.ok(s.findIndex((x) => x.from === '학') < s.findIndex((x) => x.from === '배영민'));
+});

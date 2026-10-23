@@ -136,6 +136,55 @@
     return [a, b].map((x) => (x ? stripBrackets(x) : '')).filter(Boolean).join(', ');
   }
 
+  // ---------- 인물 이름 오타 합치기 제안 ----------
+  // 대본 속 오타(서희→소희, 학→상학, 배영민→영민)를 찾아 '합칠까요?'로 제안. 자동으로 바꾸지는 않음
+  const MERGE_RARE_LINES = 2;       // 이 이하로 나온 이름은 오타일 가능성이 큼
+  const MERGE_MAX_SHARE = 0.25;     // 대상 인물 대사 수의 이 비율 이하일 때만 (둘 다 많으면 서로 다른 인물)
+  const MERGE_SIMILAR = 0.75;       // 자모 일치율이 이 이상이면 오타로 봄 (서희↔소희 = 0.75)
+  const MERGE_SIMILAR_RARE = 0.65;  // 아주 드문 이름은 조금 덜 비슷해도 후보로 (상을↔상출)
+  const MERGE_MAX_CANDIDATES = 3;
+
+  // characters: listCharacters() 결과 [{ name, lines }] → [{ from, lines, to: [후보 이름], reason }] (드문 이름부터)
+  function suggestNameMerges(characters) {
+    const list = characters.filter((c) => c.name);
+    const out = [];
+    list.forEach((from) => {
+      const scored = list
+        .filter((to) => to.name !== from.name)
+        .map((to) => ({ to, match: mergeMatch(from, to) }))
+        .filter((s) => s.match)
+        .sort((a, c) => c.match.score - a.match.score || c.to.lines - a.to.lines);
+      if (!scored.length) return;
+      out.push({ from: from.name, lines: from.lines, to: scored.slice(0, MERGE_MAX_CANDIDATES).map((s) => s.to.name), reason: scored[0].match.reason });
+    });
+    return out.sort((a, c) => a.lines - c.lines);
+  }
+
+  // from을 to로 합칠 만한지와 그 이유. 항상 대사가 더 많은 쪽으로 합침
+  function mergeMatch(from, to) {
+    const f = from.name.replace(/\s+/g, '');
+    const t = to.name.replace(/\s+/g, '');
+    // 성을 붙인 이름 (배영민 → 영민): 성은 한두 글자
+    if (f.length > t.length && f.length - t.length <= 2 && t.length >= 2 && f.endsWith(t) && to.lines >= from.lines) {
+      return { score: 0.95, reason: `'${t}'에 성을 붙인 이름` };
+    }
+    if (to.lines <= from.lines) return null;
+    const rare = from.lines <= MERGE_RARE_LINES;
+    if (!rare && from.lines > to.lines * MERGE_MAX_SHARE) return null;
+    // 이름 끝부분만 씀 (학 → 상학)
+    if (rare && t.length > f.length && t.endsWith(f)) return { score: 0.9, reason: `'${t}'의 끝부분만 쓴 이름` };
+    if (f.length !== t.length) return null;
+    const sim = jamoSimilarity(f, t);
+    if (sim >= MERGE_SIMILAR || (rare && sim >= MERGE_SIMILAR_RARE)) return { score: sim, reason: `'${t}'${withAnd(t)} 글자가 거의 같음` };
+    return null;
+  }
+
+  // 받침이 있으면 '과', 없으면 '와'
+  function withAnd(word) {
+    const code = word.charCodeAt(word.length - 1) - 0xac00;
+    return code >= 0 && code <= 11171 && code % 28 ? '과' : '와';
+  }
+
   function listCharacters(items) {
     const counts = new Map();
     items.filter((i) => i.type === 'line').forEach((i) => counts.set(i.character, (counts.get(i.character) || 0) + 1));
@@ -326,7 +375,7 @@
   function detectMood(text) { return findByWords(MOODS, text); }
   function detectEmotion(text) { return findByWords(EMOTIONS, text); }
 
-  const api = { parseScript, findSpokenNames, listCharacters, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, firstLetterHint, detectMood, detectEmotion, normalize };
+  const api = { parseScript, findSpokenNames, listCharacters, suggestNameMerges, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, firstLetterHint, detectMood, detectEmotion, normalize };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ScriptKit = api;
 })(this);
