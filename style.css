@@ -82,6 +82,13 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .options legend { color: var(--spot); padding: 0 6px; }
 .options label { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .options small { color: var(--muted); }
+.option-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.option-row > label { flex: 1 1 0; min-width: 0; flex-wrap: nowrap; white-space: nowrap; }
+.option-row > label input[type=range] { flex: 1 1 auto; min-width: 60px; width: auto; }
+.info-btn { flex: none; }
+.info-btn { background: none; border: 1px solid var(--line); color: var(--spot); border-radius: 999px; width: 28px; height: 28px; padding: 0; cursor: pointer; font-size: 0.95rem; line-height: 1; }
+.info-btn[aria-expanded="true"] { background: var(--spot); color: var(--stage); }
+.option-help { flex-basis: 100%; margin: 4px 0 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--stage-2); color: var(--paper); font-size: 0.88rem; line-height: 1.6; }
 
 /* 무대 */
 .stage { position: relative; aspect-ratio: 16 / 7; border-radius: var(--radius-lg); overflow: hidden; background: linear-gradient(135deg, #222, #444);
