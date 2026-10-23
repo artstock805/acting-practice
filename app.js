@@ -10,8 +10,8 @@
   const V = window.VoiceKit;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v24';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
-  const KEEP_GOING_SCORE = 0.1;      // 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 계속 진행
+  const APP_VERSION = 'v25';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
   const $ = (id) => document.getElementById(id);
@@ -23,7 +23,7 @@
   const NOTE_PHONE_LOCAL = '📱 휴대폰에서는 음성 채점과 녹음을 동시에 할 수 없어, 채점을 우선하고 녹음은 하지 않습니다. 녹음해서 다시 들으려면 PC에서 연습하세요.';
   const NOTE_PHONE_CLOUD = '📱 휴대폰에서는 녹음을 서버로 보내 채점합니다. 말을 마치면 1~2초 뒤에 결과가 나와요. 녹음을 끄면 휴대폰 내장 인식으로 바로 채점합니다.';
 
-  let state = loadState() || { text: '', items: [], cast: {}, opts: { mode: 'hint', threshold: 70, rate: 1, directions: false, aiImage: false, record: true }, index: 0, results: {} };
+  let state = loadState() || { text: '', items: [], cast: {}, opts: { mode: 'hint', threshold: 70, keepGoing: DEFAULT_KEEP_GOING, rate: 1, directions: false, aiImage: false, record: true }, index: 0, results: {} };
   let runToken = 0;
   let listener = null;
   let waiting = false;
@@ -239,6 +239,7 @@
     const o = state.opts;
     $('opt-mode').value = o.mode;
     $('opt-threshold').value = o.threshold;
+    $('opt-keep-going').value = o.keepGoing ?? DEFAULT_KEEP_GOING;  // 이 옵션이 생기기 전에 저장된 설정은 기본값
     $('opt-rate').value = o.rate;
     $('opt-directions').checked = o.directions;
     $('opt-ai-image').checked = o.aiImage;
@@ -248,15 +249,28 @@
     $('opt-record-note').hidden = !RECORD_BLOCKS_SCORING;
     $('opt-record-note').textContent = cloudReady ? NOTE_PHONE_CLOUD : NOTE_PHONE_LOCAL;
     const sync = () => {
-      update({ opts: { mode: $('opt-mode').value, threshold: +$('opt-threshold').value, rate: +$('opt-rate').value,
+      update({ opts: { mode: $('opt-mode').value, threshold: +$('opt-threshold').value, keepGoing: +$('opt-keep-going').value, rate: +$('opt-rate').value,
         directions: $('opt-directions').checked, aiImage: $('opt-ai-image').checked,
         record: recordLocked ? o.record : $('opt-record').checked } });  // 휴대폰에서 강제로 끈 건 저장하지 않음
       $('opt-threshold-val').textContent = state.opts.threshold + '%';
+      $('opt-keep-going-val').textContent = state.opts.keepGoing + '%';
       $('opt-rate-val').textContent = state.opts.rate.toFixed(1) + '×';
       if (!$('opt-record').checked) R.release();  // 녹음을 끄면 열어 둔 마이크도 바로 놓아 줌
     };
-    ['opt-mode', 'opt-threshold', 'opt-rate', 'opt-directions', 'opt-ai-image', 'opt-record'].forEach((id) => { $(id).oninput = sync; $(id).onchange = sync; });
+    ['opt-mode', 'opt-threshold', 'opt-keep-going', 'opt-rate', 'opt-directions', 'opt-ai-image', 'opt-record'].forEach((id) => { $(id).oninput = sync; $(id).onchange = sync; });
     sync();
+    bindOptionHelp();
+  }
+
+  // ⓘ를 누르면 옵션 설명을 펼치고 다시 누르면 접음
+  function bindOptionHelp() {
+    document.querySelectorAll('.info-btn').forEach((btn) => {
+      btn.onclick = () => {
+        const help = $(btn.dataset.help);
+        help.hidden = !help.hidden;
+        btn.setAttribute('aria-expanded', String(!help.hidden));
+      };
+    });
   }
 
   // ---------- 3. 연습 ----------
@@ -399,8 +413,8 @@
     recordResult(state.index, score);
     showDiff(item, spoken, score);
     if (score >= threshold) { setMic('👏 좋아요!'); await sleep(700); return 'next'; }
-    // 통과 기준에 못 미쳐도 10%를 넘으면 멈추지 않고 다음 대사로 (점수·틀린 곳은 남겨 두고 잠깐 보여 줌)
-    if (score > KEEP_GOING_SCORE) {
+    // 통과 기준에 못 미쳐도 '계속 진행 기준'을 넘으면 멈추지 않고 다음 대사로 (점수·틀린 곳은 남겨 두고 잠깐 보여 줌)
+    if (score > (state.opts.keepGoing ?? DEFAULT_KEEP_GOING) / 100) {
       revealLine(item);
       setMic(`조금 달라요 (${Math.round(score * 100)}%). 다음 대사로 넘어가요.`);
       await sleep(KEEP_GOING_PAUSE_MS);
