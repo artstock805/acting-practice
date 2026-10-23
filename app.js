@@ -10,6 +10,7 @@
   const V = window.VoiceKit;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const NARRATOR = '__narrator__';
+  const APP_VERSION = 'v14';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
   const $ = (id) => document.getElementById(id);
   const PHONE_OS = phoneOS();
@@ -572,6 +573,43 @@
     }
   }
 
+  // 파일 선택 창을 연 시각. 고르는 동안 휴대폰이 메모리 부족으로 앱을 다시 시작하면 다음 실행 때 알아차려 안내함
+  const PICKER_KEY = 'acting-practice-picker-opened';
+  const PICKER_RESTART_WINDOW_MS = 10 * 60 * 1000;
+  const pickerMark = {
+    set() { try { sessionStorage.setItem(PICKER_KEY, String(Date.now())); } catch (_) { /* 저장 불가 브라우저 */ } },
+    take() {
+      try { const t = Number(sessionStorage.getItem(PICKER_KEY)); sessionStorage.removeItem(PICKER_KEY); return t || 0; } catch (_) { return 0; }
+    },
+  };
+
+  // 파일 종류 제한(accept)은 두지 않음: 안드로이드는 .hwp 같은 확장자의 형식을 몰라, 골라도 앱에 파일을 넘기지 않음.
+  // 어떤 파일이든 받아서 fileimport.js가 형식을 직접 판별하고, 대본이 아니면 안내 문구를 보여 줌.
+  // 단계마다 상태를 보여 줘서 휴대폰에서 어디서 멈추는지 알 수 있게 함
+  function bindFilePicker() {
+    const input = $('file-input');
+    input.addEventListener('click', () => {
+      pickerMark.set();
+      setImportStatus('📂 파일을 고르는 중… 고르고 돌아오면 바로 읽어요.');
+    });
+    input.addEventListener('cancel', () => { pickerMark.take(); setImportStatus('파일 선택을 취소했어요.'); });
+    input.onchange = (e) => {
+      pickerMark.take();
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';  // 같은 파일을 다시 골라도 다시 읽도록
+      if (file) importScriptFile(file);
+      else setImportStatus('⚠ 고른 파일을 받지 못했습니다. 파일 앱(내 파일)에서 대본 파일을 다시 골라 주세요.', true);
+    };
+  }
+
+  // 파일을 고르러 간 사이 앱이 다시 시작됐으면(휴대폰이 뒤로 간 화면을 정리) 그 사실을 알려 줌
+  function checkPickerRestart() {
+    const openedAt = pickerMark.take();
+    if (openedAt && Date.now() - openedAt < PICKER_RESTART_WINDOW_MS) {
+      setImportStatus('⚠ 파일을 고르는 동안 앱이 다시 시작되어 파일을 받지 못했습니다(휴대폰 메모리 부족 등). 다른 앱을 닫고 다시 시도하거나, 브라우저에서 열어 다시 골라 주세요.', true);
+    }
+  }
+
   function setImportStatus(text, isError) {
     const box = $('import-status');
     box.hidden = !text;
@@ -583,14 +621,7 @@
   function bindEvents() {
     document.querySelectorAll('.tab').forEach((t) => { t.onclick = () => (t.dataset.view === 'practice' ? goPractice() : showView(t.dataset.view)); });
     $('btn-sample').onclick = () => { $('script-input').value = window.SAMPLE_SCRIPT; };
-    // 파일 종류 제한(accept)은 두지 않음: 안드로이드는 .hwp 같은 확장자의 형식을 몰라, 골라도 앱에 파일을 넘기지 않음.
-    // 어떤 파일이든 받아서 fileimport.js가 형식을 직접 판별하고, 대본이 아니면 안내 문구를 보여 줌
-    $('file-input').onchange = (e) => {
-      const file = e.target.files && e.target.files[0];
-      e.target.value = '';  // 같은 파일을 다시 골라도 다시 읽도록
-      if (file) importScriptFile(file);
-      else setImportStatus('⚠ 고른 파일을 받지 못했습니다. 파일 앱(내 파일)에서 대본 파일을 다시 골라 주세요.', true);
-    };
+    bindFilePicker();
     $('btn-parse').onclick = parseAndGo;
     $('btn-to-practice').onclick = goPractice;
     $('btn-auto-voices').onclick = autoAssignVoices;
@@ -682,7 +713,9 @@
 
   function init() {
     $('script-input').value = state.text || '';
+    $('app-version').textContent = `앱 버전 ${APP_VERSION}`;
     bindEvents();
+    checkPickerRestart();
     bindOptions();
     setupInstall();
     window.addEventListener('pagehide', () => R.release());  // 앱을 닫거나 다른 화면으로 가면 마이크를 놓음
