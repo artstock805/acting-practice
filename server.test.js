@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const net = require('node:net');
-const { createServer, createRateLimiter, validateWav, parseWavHeader, clientIp, MAX_AUDIO_SECONDS } = require('./server.js');
+const { createServer, createRateLimiter, validateWav, parseWavHeader, clientIp, lineHint, speechContexts, MAX_AUDIO_SECONDS } = require('./server.js');
 const { encodeWav } = require('./audiokit.js');
 
 const wavOf = (seconds, rate = 16000) => Buffer.from(encodeWav(new Float32Array(Math.round(seconds * rate)), rate));
@@ -143,4 +143,36 @@ test('static files are served with headers; server code, tests and traversal are
       assert.strictEqual((await fetch(base + p)).status, 404, p);
     }
   });
+});
+
+// ---------- 인식률 개선: 대사 힌트·후보 여러 개 ----------
+test('the expected line is passed to the recognizer as a hint', async () => {
+  let gotHint = null;
+  await withServer({ transcribe: async (_wav, _info, hint) => { gotHint = hint; return { text: '늦었네', segments: [['늦었네']] }; } }, async (base) => {
+    const res = await fetch(`${base}/api/stt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'audio/wav', 'X-Line-Hint': encodeURIComponent('늦었네. 오늘도 비가 오네.') },
+      body: wavOf(0.5),
+    });
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(await res.json(), { text: '늦었네', segments: [['늦었네']] });
+  });
+  assert.strictEqual(gotHint, '늦었네. 오늘도 비가 오네.');
+});
+
+test('hints are optional, length-limited and stripped of control characters', () => {
+  assert.strictEqual(lineHint({ headers: {} }), '');
+  assert.strictEqual(lineHint({ headers: { 'x-line-hint': '%E0%A4%A' } }), '');            // 잘못된 인코딩
+  assert.strictEqual(lineHint({ headers: { 'x-line-hint': encodeURIComponent('a\u0000b\nc') } }), 'a b c');
+  assert.strictEqual(lineHint({ headers: { 'x-line-hint': encodeURIComponent('가'.repeat(500)) } }).length, 300);
+});
+
+test('speechContexts split a hint into phrases of at most 100 characters', () => {
+  const ctx = speechContexts('3년 만에 갑자기 나타나서 커피 한 잔 시켜 놓고 두 시간째야. 할 말 있으면 해.');
+  assert.strictEqual(ctx.length, 1);
+  assert.ok(ctx[0].boost > 0);
+  assert.ok(ctx[0].phrases.every((p) => p.length <= 100 && p.length > 0));
+  assert.ok(ctx[0].phrases.includes('할 말 있으면 해'));
+  assert.deepStrictEqual(speechContexts(''), []);
+  assert.ok(speechContexts('가'.repeat(250))[0].phrases.every((p) => p.length <= 100));
 });

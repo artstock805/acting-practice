@@ -51,3 +51,59 @@ test('mood and emotion detection avoid common false positives', () => {
   assert.strictEqual(K.detectEmotion('화가 나서').key, 'anger');
   assert.strictEqual(K.detectEmotion('대화를 나누며'), null);
 });
+
+// ---------- 인식률 개선: 발음 단위 비교·숫자 표기·후보 선택·말 끊김 기준 ----------
+test('similarity gives partial credit for near-sounding syllables (compares 자모)', () => {
+  assert.ok(K.similarity('...눈치는 빨라.', '눈치는 발라') >= 0.9);           // ㅃ↔ㅂ 한 자모 차이
+  assert.ok(K.similarity('그 습관 때문에 떠나기 싫어지잖아.', '그 습관 때문에 떠나기 시러지잖아') >= 0.9);
+  assert.strictEqual(K.similarity('우산이 없어서.', '우산이 없어서'), 1);
+});
+
+test('similarity still keeps unrelated sentences low', () => {
+  assert.ok(K.similarity('우산이 없어서.', '오늘 날씨 좋네') < 0.45);
+  assert.ok(K.similarity('됐어. 나 내일 떠나. 그 말 하려고 왔어.', '어디로 가는 건데 말해 봐') < 0.45);
+  assert.ok(K.similarity('미안하다고 했잖아', '오늘 날씨 좋다') < 0.45);
+});
+
+test('similarity treats digits and their spoken Korean forms as the same', () => {
+  assert.strictEqual(K.similarity('3년 만에 왔어.', '삼 년 만에 왔어'), 1);    // 한자어 수
+  assert.strictEqual(K.similarity('3시에 보자.', '세 시에 보자'), 1);          // 고유어 수
+  assert.strictEqual(K.similarity('세 시에 보자.', '3시에 보자'), 1);          // 반대 방향
+  assert.strictEqual(K.similarity('2026년이야.', '이천이십육 년이야'), 1);
+  assert.strictEqual(K.similarity('스무 살이야.', '20살이야'), 1);
+});
+
+test('wordDiff marks near-sounding and number-form words as correct', () => {
+  assert.deepStrictEqual(K.wordDiff('눈치는 빨라.', '눈치는 발라').map((w) => w.ok), [true, true]);
+  assert.deepStrictEqual(K.wordDiff('3시에 보자.', '세 시에 보자').map((w) => w.ok), [true, true]);
+  assert.deepStrictEqual(K.wordDiff('나는 간다', '나는 안 가').map((w) => w.ok), [true, false]);
+});
+
+test('bestAlternative picks the recognizer candidate closest to the line', () => {
+  const line = '우산, 내가 씌워 줄게. 역까지만.';
+  assert.strictEqual(K.bestAlternative(line, '', ['우산 내가 쉬어 줄게', '우산 내가 씌워 줄게', '우산 네가 씌워 줘']), '우산 내가 씌워 줄게');
+  assert.strictEqual(K.bestAlternative(line, '우산 내가 씌워 줄게', ['역까지 만', '여기까지만']), '역까지 만');
+  assert.strictEqual(K.bestAlternative(line, '', []), '');
+});
+
+test('silenceForLine waits longer for long lines and lines with pauses', () => {
+  const short = K.silenceForLine('응.');
+  const long = K.silenceForLine('3년 만에 갑자기 나타나서 커피 한 잔 시켜 놓고 두 시간째야. 할 말 있으면 해.');
+  const pause = K.silenceForLine('그건... 미안해.');
+  assert.strictEqual(short, 1400);
+  assert.ok(long > short && long <= 3200);
+  assert.ok(pause > K.silenceForLine('그건 미안해.'));
+});
+
+test('very short lines need the exact sound (no partial credit for 1~2 syllables)', () => {
+  assert.strictEqual(K.similarity('응.', '음'), 0);
+  assert.strictEqual(K.similarity('네.', '내'), 0);
+  assert.strictEqual(K.similarity('응.', '응'), 1);
+  assert.ok(K.similarity('안녕.', '아니') < 0.5);
+});
+
+test('absurdly long digit runs do not hang or crash', () => {
+  const huge = '1'.repeat(400);
+  assert.strictEqual(K.similarity(huge, huge), 1);
+  assert.ok(K.similarity('9'.repeat(12) + '원', '구천억 원') >= 0);
+});

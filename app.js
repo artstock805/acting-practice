@@ -9,6 +9,7 @@
   const V = window.VoiceKit;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const NARRATOR = '__narrator__';
+  const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
   const $ = (id) => document.getElementById(id);
   const PHONE_OS = phoneOS();
   // 휴대폰은 녹음이 마이크를 잡으면 음성 인식에 무음만 들어감 → 인식이 되는 휴대폰에선 채점을 우선하고 녹음은 하지 않음
@@ -256,6 +257,9 @@
       setRetryButtons(true);
       return 'wait';
     }
+    // 상대 대사(스피커 소리)의 끝부분이 마이크에 섞이지 않게 잠깐 쉬고 듣기 시작
+    await sleep(POST_SPEECH_GAP_MS);
+    if (token !== runToken) return 'wait';
     if (useCloudScoring()) return listenViaServer(item, token, threshold);
     const recording = await startRecording();
     if (token !== runToken) { R.discard(); return 'wait'; }
@@ -263,6 +267,8 @@
     listener = S.listen({
       onInterim: (t) => setMic('🎙 ' + t, true),
       shouldStopEarly: (t) => K.similarity(item.text, t) >= Math.max(threshold, 0.9),
+      silenceMs: K.silenceForLine(item.text),
+      pickAlternative: (soFar, alternatives) => K.bestAlternative(item.text, soFar, alternatives),
     });
     let spoken = '';
     const trace = listener.trace;
@@ -282,6 +288,8 @@
   async function listenViaServer(item, token, threshold) {
     setMic('⏺ 녹음 중 · 듣고 있어요… 대사를 말해 주세요.', true);
     listener = C.listen({
+      hint: item.text,
+      silenceMs: K.silenceForLine(item.text),
       onPhase: (phase, ms) => {
         if (token !== runToken) return;
         if (phase === 'timed') setMic(`⏺ 녹음 중 · 대사를 말해 주세요 (${ms / 1000}초 동안 녹음)`, true);
@@ -300,7 +308,13 @@
     listener = null;
     if (token !== runToken) return 'wait';
     if (result.blob) saveTake(state.index, result.blob);
-    return judgeLine(item, result.text, threshold, cloudDiagnosis(diag));
+    return judgeLine(item, pickFromSegments(item.text, result), threshold, cloudDiagnosis(diag));
+  }
+
+  // 서버가 구간마다 준 인식 후보 중 대사에 가장 가까운 것을 앞에서부터 골라 이어 붙임
+  function pickFromSegments(line, result) {
+    if (!result.segments || !result.segments.length) return result.text;
+    return result.segments.reduce((soFar, alternatives) => `${soFar} ${K.bestAlternative(line, soFar, alternatives)}`.trim(), '');
   }
 
   // 서버 채점이 실패했을 때: 오디오 상태, 들린 최대 소리 크기, 무음 감지 결과, 업로드 크기

@@ -9,6 +9,7 @@
   const POLL_MS = 50;
   const RESUME_WAIT_MS = 500;
   const TIMED_TAKE_MS = 7000;   // 소리 크기를 못 잴 때 녹음할 시간 (그 뒤 서버가 말이 있었는지 판단)
+  const MAX_HINT_CHARS = 300;   // 서버가 받는 힌트 길이 한도와 같게
   const Ctx = root.AudioContext || root.webkitAudioContext;
 
   // 서버가 있는 배포(Cloud Run)에서만 true. 로컬 실행기(serve.ps1)나 정적 호스팅은 404라 false
@@ -32,15 +33,16 @@
   }
 
   // onPhase('upload') 업로드 시작 알림
-  // promise → { text, blob }   (말이 없었으면 text '', blob null)
+  // hint: 말할 대사 (서버가 Google 인식에 힌트로 넘김) · silenceMs: 말이 끝났다고 볼 침묵 길이
+  // promise → { text, segments, blob }   (말이 없었으면 text '', blob null). segments = 구간별 인식 후보들
   // diag: 실패 원인 표시용 { ctx, peak, threshold, outcome, uploadKB }
-  function listen({ onPhase } = {}) {
+  function listen({ onPhase, hint = '', silenceMs } = {}) {
     let stopped = false;
     let timer = null;
     let source = null;
     let finishLoop = null;     // 무음 감지 루프를 끝내는 함수 (stop()에서도 부름)
     const upload = new AbortController();
-    const EMPTY = { text: '', blob: null };
+    const EMPTY = { text: '', segments: [], blob: null };
     const diag = { ctx: '', peak: 0, threshold: 0, outcome: '', uploadKB: null };
     unlock();
     const ctx = sharedCtx;
@@ -63,7 +65,7 @@
       const blob = await R.stop();
       if (!blob || stopped) return resolveFn(EMPTY);
       if (onPhase) onPhase('upload');
-      resolveFn({ text: await transcribe(blob, upload.signal, diag), blob });
+      resolveFn({ ...(await transcribe(blob, upload.signal, diag, hint)), blob });
     })().catch((err) => {
       cleanup();
       R.release();  // 실패하면 마이크를 놓아야 휴대폰 내장 인식 등 다음 시도가 소리를 받음
@@ -78,7 +80,7 @@
       source = ctx.createMediaStreamSource(R.getStream());
       source.connect(analyser);
       const frame = new Float32Array(analyser.fftSize);
-      const detector = A.createSilenceDetector();
+      const detector = A.createSilenceDetector(silenceMs ? { silenceMs } : {});
       const outcome = await new Promise((done) => {
         finishLoop = done;
         timer = setInterval(() => {
@@ -123,15 +125,18 @@
     return ctx.state === 'running';
   }
 
-  async function transcribe(blob, signal, diag) {
+  async function transcribe(blob, signal, diag, hint) {
     const samples = await toMono16k(blob);
-    if (samples.length < TARGET_RATE / 10) return '';  // 0.1초도 안 되면 말이 없던 것
+    if (samples.length < TARGET_RATE / 10) return { text: '', segments: [] };  // 0.1초도 안 되면 말이 없던 것
     const wav = A.encodeWav(samples, TARGET_RATE);
     diag.uploadKB = Math.round(wav.byteLength / 1024);
-    const res = await fetch('api/stt', { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wav, signal });
+    const headers = { 'Content-Type': 'audio/wav' };
+    // 글자 단위로 자름: 문자열 slice는 이모지(서로게이트 쌍)를 반으로 잘라 encodeURIComponent가 실패할 수 있음
+    if (hint) headers['X-Line-Hint'] = encodeURIComponent(Array.from(hint).slice(0, MAX_HINT_CHARS).join(''));
+    const res = await fetch('api/stt', { method: 'POST', headers, body: wav, signal });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(body.error || 'server ' + res.status), { server: true, status: res.status });
-    return body.text || '';
+    return { text: body.text || '', segments: Array.isArray(body.segments) ? body.segments : [] };
   }
 
   // 녹음 파일(webm·mp4 등 브라우저마다 다름)을 풀어 16kHz 모노 파형으로 바꿈

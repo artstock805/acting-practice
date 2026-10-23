@@ -100,7 +100,32 @@ async function fetchMetadataToken() {
   return cachedToken.token;
 }
 
-async function recognize(wav, info) {
+// ---------- 인식 힌트 ----------
+// 앱은 사용자가 말할 대사를 알고 있음 → Google에 '이 문장이 나올 가능성이 높다'고 알려 주면 인식률이 크게 오름
+const MAX_HINT_CHARS = 300;
+const MAX_PHRASE_CHARS = 100;   // Speech-to-Text v1 phrase 한 개의 길이 한도
+const HINT_BOOST = 15;          // 0~20. 높을수록 힌트 쪽으로 강하게 끌어당김
+const ALTERNATIVES = 5;
+// 합성 음성으로 비교했을 때 ko-KR 대사 인식이 가장 정확했던 모델 (default 97% → latest_long 100%)
+const STT_MODEL = 'latest_long';
+
+function lineHint(req) {
+  const raw = req.headers['x-line-hint'];
+  if (!raw) return '';
+  let text;
+  try { text = decodeURIComponent(String(raw)); } catch { return ''; }
+  return text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_HINT_CHARS);
+}
+
+// 문장부호에서 나누고, 그래도 긴 조각은 100자 단위로 자름
+function speechContexts(hint) {
+  const phrases = String(hint || '').split(/[.!?…,~]+/).map((s) => s.trim()).filter(Boolean)
+    .flatMap((s) => s.match(new RegExp(`[\\s\\S]{1,${MAX_PHRASE_CHARS}}`, 'g')).map((p) => p.trim()))
+    .filter(Boolean);
+  return phrases.length ? [{ phrases, boost: HINT_BOOST }] : [];
+}
+
+async function recognize(wav, info, hint = '') {
   const { token, project } = await getAuth();
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   if (project) headers['x-goog-user-project'] = project;
@@ -109,13 +134,20 @@ async function recognize(wav, info) {
     headers,
     signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     body: JSON.stringify({
-      config: { encoding: 'LINEAR16', sampleRateHertz: info.sampleRate, languageCode: 'ko-KR', maxAlternatives: 1 },
+      config: {
+        encoding: 'LINEAR16', sampleRateHertz: info.sampleRate, languageCode: 'ko-KR', model: STT_MODEL,
+        maxAlternatives: ALTERNATIVES, speechContexts: speechContexts(hint),
+      },
       audio: { content: wav.subarray(info.dataOffset, info.dataOffset + info.dataBytes).toString('base64') },
     }),
   });
   if (!res.ok) throw new Error(`speech ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const body = await res.json();
-  return (body.results || []).map((r) => (r.alternatives && r.alternatives[0] ? r.alternatives[0].transcript : '')).join(' ').trim();
+  // 구간(segment)마다 후보 여러 개 → 앱이 대사와 가장 가까운 후보를 고름. text는 1순위끼리 이은 것
+  const segments = (body.results || [])
+    .map((r) => (r.alternatives || []).map((a) => (a.transcript || '').trim()).filter(Boolean))
+    .filter((alts) => alts.length);
+  return { text: segments.map((alts) => alts[0]).join(' ').trim(), segments };
 }
 
 // ---------- HTTP ----------
@@ -170,7 +202,8 @@ function createSttHandler({ allow = createRateLimiter(RATE_LIMIT), allowGlobal =
     if (inFlight >= MAX_IN_FLIGHT) return sendJson(res, 503, TOO_MANY);
     inFlight++;
     try {
-      return sendJson(res, 200, { text: await transcribe(wav, info) });
+      const result = await transcribe(wav, info, lineHint(req));
+      return sendJson(res, 200, typeof result === 'string' ? { text: result } : result);
     } catch (err) {
       console.error('[stt]', err.message);  // 자세한 원인은 서버 로그에만 남김
       return sendJson(res, 502, { error: '음성 인식 서버에서 오류가 났습니다.' });
@@ -227,4 +260,4 @@ if (require.main === module) {
   createServer().listen(port, () => console.log(`acting-practice on :${port} (static: ${ROOT})`));
 }
 
-module.exports = { parseWavHeader, validateWav, createRateLimiter, createServer, clientIp, MAX_AUDIO_SECONDS };
+module.exports = { parseWavHeader, validateWav, createRateLimiter, createServer, clientIp, lineHint, speechContexts, MAX_AUDIO_SECONDS };
