@@ -10,7 +10,9 @@
   const V = window.VoiceKit;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v23';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v24';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const KEEP_GOING_SCORE = 0.1;      // 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 계속 진행
+  const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
   const $ = (id) => document.getElementById(id);
   const PHONE_OS = phoneOS();
@@ -397,6 +399,13 @@
     recordResult(state.index, score);
     showDiff(item, spoken, score);
     if (score >= threshold) { setMic('👏 좋아요!'); await sleep(700); return 'next'; }
+    // 통과 기준에 못 미쳐도 10%를 넘으면 멈추지 않고 다음 대사로 (점수·틀린 곳은 남겨 두고 잠깐 보여 줌)
+    if (score > KEEP_GOING_SCORE) {
+      revealLine(item);
+      setMic(`조금 달라요 (${Math.round(score * 100)}%). 다음 대사로 넘어가요.`);
+      await sleep(KEEP_GOING_PAUSE_MS);
+      return 'next';
+    }
     setMic(spoken ? '조금 달라요. 다시 말하거나 통과 처리할 수 있어요.' : '소리가 들리지 않았어요. 마이크를 확인해 주세요.' + failDetail);
     revealLine(item);
     setRetryButtons(true);
