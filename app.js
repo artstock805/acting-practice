@@ -10,7 +10,7 @@
   const V = window.VoiceKit;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v15';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v16';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
   const $ = (id) => document.getElementById(id);
   const PHONE_OS = phoneOS();
@@ -61,10 +61,34 @@
     const newOthers = chars.map((c) => c.name).filter((n) => cast[n].isNew && !cast[n].mine);
     const assigned = V.distributeVoices(newOthers, availableVoiceURIs());
     Object.keys(cast).forEach((n) => { const { isNew, ...rest } = cast[n]; cast[n] = { ...rest, ...(assigned[n] || {}) }; });
-    update({ text, items, cast, index: 0, results: {} });
+    update({ text, items, cast, index: 0, results: {}, mergeDismissed: [] });
     renderCast();
     enableTabs();
     showView('cast');
+  }
+
+  // ---------- 인물 이름 오타 합치기 제안 ----------
+  function renderMergeSuggestions(chars) {
+    const dismissed = new Set(state.mergeDismissed || []);
+    const suggestions = K.suggestNameMerges(chars).filter((s) => !dismissed.has(s.from));
+    const list = $('merge-list');
+    list.textContent = '';
+    $('merge-box').hidden = !suggestions.length;
+    suggestions.forEach((s) => {
+      const li = el('li', { className: 'merge-item' });
+      li.append(el('span', { className: 'merge-from', textContent: `${s.from} (대사 ${s.lines}줄)` }), el('span', { className: 'note', textContent: ` — ${s.reason}` }));
+      const actions = el('div', { className: 'merge-actions' });
+      s.to.forEach((to) => {
+        const merge = el('button', { className: 'primary', textContent: `→ ${to}(으)로 합치기` });
+        merge.onclick = () => renameChar(s.from, to);
+        actions.append(merge);
+      });
+      const keep = el('button', { className: 'ghost', textContent: '다른 인물이에요' });
+      keep.onclick = () => { update({ mergeDismissed: [...(state.mergeDismissed || []), s.from] }); renderCast(); };
+      actions.append(keep);
+      li.append(actions);
+      list.append(li);
+    });
   }
 
   // ---------- 2. 배역 ----------
@@ -77,7 +101,9 @@
     const clashes = V.findVoiceClashes(state.cast);
     const body = $('cast-body');
     body.textContent = '';
-    K.listCharacters(state.items).forEach(({ name, lines }) => {
+    const chars = K.listCharacters(state.items);
+    renderMergeSuggestions(chars);
+    chars.forEach(({ name, lines }) => {
       const cfg = state.cast[name];
       const tr = document.createElement('tr');
       tr.classList.toggle('is-mine', cfg.mine);

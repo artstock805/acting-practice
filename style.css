@@ -65,6 +65,14 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .cast input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--mine); }
 /* 인물별 목소리 설정 */
 .voice-bar { margin: 0 0 12px; }
+.merge-box { background: color-mix(in srgb, var(--spot) 12%, var(--stage-2)); border: 1px solid color-mix(in srgb, var(--spot) 45%, transparent); border-radius: var(--radius-lg); padding: 12px 16px; margin: 0 0 14px; }
+.merge-title { margin: 0 0 8px; font-weight: 700; color: var(--paper); }
+.merge-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.merge-item { border-top: 1px solid var(--line); padding-top: 10px; }
+.merge-item:first-child { border-top: 0; padding-top: 0; }
+.merge-from { font-weight: 700; color: var(--paper); }
+.merge-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.merge-actions button { padding: 6px 12px; font-size: 0.9rem; }
 .voice-box { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; align-items: center; }
 .voice-box .slider { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--muted); }
 .voice-box .slider input { flex: 1; min-width: 60px; accent-color: var(--spot); }
