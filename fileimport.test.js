@@ -343,3 +343,68 @@ test('invalid numeric character references in XML do not throw', async () => {
   const doc = '<w:document><w:body><w:p><w:r><w:t>A&#x110000;B&#999999999;C</w:t></w:r></w:p></w:body></w:document>';
   assert.strictEqual((await extract('x.docx', makeZip({ 'word/document.xml': doc }))).text, 'A&#x110000;B&#999999999;C');
 });
+
+// ---------- 한글 97 (HWP 3.0) ----------
+// 유니코드 한글 → 조합형(상용) 코드
+function toJohab(ch) {
+  const s = ch.charCodeAt(0) - 0xac00;
+  const MED = [3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21, 22, 23, 26, 27, 28, 29];
+  const fin = s % 28;
+  const f = fin === 0 ? 1 : fin <= 16 ? fin + 1 : fin + 2;
+  return 0x8000 | ((Math.floor(s / 588) + 2) << 10) | (MED[Math.floor((s % 588) / 28)] << 5) | f;
+}
+// 글자 하나를 hchar(2바이트)로: 한글은 조합형, '…'은 기호표 0x3406, 漢은 한자표, 탭은 [9, 폭, 9]
+function hchars(text) {
+  const words = [];
+  for (const ch of text) {
+    if (/[가-힣]/.test(ch)) words.push(toJohab(ch));
+    else if (ch === '…') words.push(0x3406);
+    else if (ch === '“') words.push(0x3410);
+    else if (ch === '”') words.push(0x3411);
+    else if (ch === '學') words.push(0x516b);
+    else if (ch === '\t') words.push(9, 800, 9);
+    else words.push(ch.charCodeAt(0));
+  }
+  return words;
+}
+function makeHwp3(paragraphs, { compressed = true, password = false } = {}) {
+  const sig = Buffer.alloc(30);
+  Buffer.from('HWP Document File V3.00 \x1a\x01\x02\x03\x04\x05', 'latin1').copy(sig);
+  const info = Buffer.alloc(128);
+  if (password) info.writeUInt16LE(1, 96);
+  info[124] = compressed ? 1 : 0;
+  const summary = Buffer.alloc(1008);
+  const fonts = Buffer.concat(Array.from({ length: 7 }, () => { const f = Buffer.alloc(42); f.writeUInt16LE(1, 0); return f; }));
+  const styles = Buffer.alloc(2 + 238); styles.writeUInt16LE(1, 0);
+  const paras = paragraphs.map((t) => {
+    const head = Buffer.alloc(43 + 187 + 14, 0x11);                  // 문단 머리·모양·줄 정보 자리 (글자로 읽히면 안 됨)
+    const words = [...hchars(t), 13];
+    const body = Buffer.alloc(words.length * 2);
+    words.forEach((w, i) => body.writeUInt16LE(w, i * 2));
+    return Buffer.concat([head, body]);
+  });
+  const doc = Buffer.concat([fonts, styles, ...paras, Buffer.alloc(43)]);
+  return Buffer.concat([sig, info, summary, compressed ? zlib.deflateRawSync(doc) : doc]);
+}
+
+test('Hangul 97 (HWP 3.0) text is extracted: johab Hangul, symbols, hanja, tabs', async () => {
+  const r = await extract('old.hwp', makeHwp3(['[민수] 늦었네…', '[지연] “學”은\t멀어.', 'S#2. 거리']));
+  assert.strictEqual(r.format, 'hwp3');
+  assert.strictEqual(r.text, '[민수] 늦었네…\n[지연] “學”은\t멀어.\nS#2. 거리');
+});
+
+test('uncompressed and password-protected HWP 3.0 files', async () => {
+  assert.strictEqual((await extract('a.hwp', makeHwp3(['안녕'], { compressed: false }))).text, '안녕');
+  await assert.rejects(extract('locked.hwp', makeHwp3(['비밀'], { password: true })), /암호/);
+});
+
+// ---------- 압축 해제: 뒤에 붙은 데이터와 크기 한도 (브라우저 기본 해제기는 뒤 데이터를 오류로 봄) ----------
+test('fflate-based inflate ignores trailing junk after the compressed data and enforces the size cap', async () => {
+  const fflate = require('./vendor/fflate.js');
+  const inflate = F.makeInflateRaw(fflate, 1000);
+  const data = Buffer.from('민수: 늦었네.'.repeat(10));
+  const withJunk = Buffer.concat([zlib.deflateRawSync(data), Buffer.from([1, 2, 3, 4, 5, 6, 7, 8])]);   // 한글 97 파일처럼 뒤에 데이터가 붙음
+  assert.strictEqual(Buffer.from(await inflate(withJunk)).toString(), data.toString());
+  const big = zlib.deflateRawSync(Buffer.alloc(5000, 0x41));
+  await assert.rejects(inflate(big), /너무 큽니다/);
+});

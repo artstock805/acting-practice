@@ -6,6 +6,9 @@
   const SCENE_RE = /^\s*(S\s*#\s*\d+|#\s*\d+|씬\s*\d+|장면\s*\d+|INT\.|EXT\.|\d+\.\s*(실내|실외|내부|외부))/i;
   const INLINE_RE = new RegExp('^\\s*([^\\s:：()（）][^:：()（）]{0,' + (MAX_NAME_LEN - 1) + '}?)\\s*(\\([^)]*\\))?\\s*[:：]\\s*(.+)$');
   const DIRECTION_RE = /^\s*[(（\[].*[)）\]]\s*$/;
+  // "[이름] 대사" 형식. [BGM]·[Effect] 같은 무대 표시는 이름이 아님
+  const BRACKET_LINE_RE = /^\s*\[([^\]]{1,15})\]\s*(\S.*)$/;
+  const STAGE_TAGS = /^(bgm|insert|effect|bridge|se|sfx|fx|music|sound|cut|title|자막|효과|효과음|음향|음악|조명|암전|노래|브릿지|삽입)$/i;
 
   // ---------- '이름 대사' 형식 (희곡에서 흔함: 쌍점 없이 이름 뒤에 띄어쓰기) ----------
   // 줄 맨 앞에 여러 번 나오는 짧은 단어를 인물 이름으로 봄. '수철이 들어온다'처럼 조사가 붙은 건 지문
@@ -57,6 +60,9 @@
   function parseScript(text) {
     const lines = String(text || '').replace(/\r/g, '').split('\n');
     const spokenNames = findSpokenNames(lines);
+    // 희곡식('이름 대사')이나 '[이름] 대사'로 쓴 대본이면 제목·배역표 줄을 시나리오식 이름 줄로 보지 않음
+    const bracketSpeakers = lines.filter((l) => { const m = BRACKET_LINE_RE.exec(l.trim()); return m && !STAGE_TAGS.test(m[1].trim()); }).length;
+    const noStandaloneNames = spokenNames.size > 0 || bracketSpeakers >= MIN_SPEAKER_LINES;
     const items = [];
     let pendingName = null;
     let scene = '';
@@ -68,6 +74,13 @@
       if (SCENE_RE.test(line)) {
         scene = line;
         items.push({ type: 'scene', text: line, scene });
+        pendingName = null;
+        return;
+      }
+      const bracket = BRACKET_LINE_RE.exec(line);
+      if (bracket && !STAGE_TAGS.test(bracket[1].trim()) && looksLikeName(bracket[1])) {
+        const { text: speech, note } = splitNote(bracket[2]);
+        items.push({ type: 'line', character: bracket[1].trim(), text: speech, note: joinNotes('', note), scene });
         pendingName = null;
         return;
       }
@@ -95,8 +108,7 @@
         items.push({ type: 'line', character: spoken[1], text: speech, note: joinNotes('', note), scene });
         return;
       }
-      // 희곡식('이름 대사') 대본이면 '김상범 전세환' 같은 배역표 줄을 시나리오식 이름 줄로 보지 않음
-      if (!spokenNames.size && isStandaloneName(line)) { pendingName = { name: line, note: '' }; return; }
+      if (!noStandaloneNames && isStandaloneName(line)) { pendingName = { name: line, note: '' }; return; }
       items.push({ type: 'direction', text: line, scene });
     });
     return items;
