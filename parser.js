@@ -100,21 +100,116 @@
     return prev[b.length];
   }
 
-  // 0~1, 띄어쓰기·문장부호 무시한 글자 단위 일치율
+  // ---------- 채점 ----------
+  // 한글 음절을 자모로 풀어 비교 → '빨라'와 '발라'처럼 소리가 비슷하면 부분 점수 (음절 통째로 틀림 처리하지 않음)
+  const CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+  const JUNG = 'ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ';
+  const JONG = ' ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ';
+  function toJamo(s) {
+    let out = '';
+    for (const ch of s) {
+      const code = ch.charCodeAt(0) - 0xac00;
+      if (code < 0 || code > 11171) { out += ch; continue; }
+      out += CHO[Math.floor(code / 588)] + JUNG[Math.floor((code % 588) / 28)] + (code % 28 ? JONG[code % 28] : '');
+    }
+    return out;
+  }
+
+  function jamoSimilarity(a, b) {
+    const ja = toJamo(a);
+    const jb = toJamo(b);
+    if (!ja.length && !jb.length) return 1;
+    return 1 - levenshtein(ja, jb) / Math.max(ja.length, jb.length);
+  }
+
+  // 숫자 읽기: 인식기는 '3년'을 '삼 년'으로, '세 시'를 '3시'로 적기도 함 → 양쪽을 한글 읽기로 맞춰 비교
+  const SINO = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
+  const NATIVE_ONES = ['', '한', '두', '세', '네', '다섯', '여섯', '일곱', '여덟', '아홉'];
+  const NATIVE_TENS = ['', '열', '스물', '서른', '마흔', '쉰', '예순', '일흔', '여든', '아흔'];
+  const NATIVE_MAX = 99;
+
+  function sinoNumber(n) {
+    if (n === 0) return '영';
+    if (n >= 10000) {
+      const man = Math.floor(n / 10000);
+      return (man === 1 ? '' : sinoNumber(man)) + '만' + (n % 10000 ? sinoNumber(n % 10000) : '');
+    }
+    return [[1000, '천'], [100, '백'], [10, '십'], [1, '']].map(([unit, name]) => {
+      const d = Math.floor(n / unit) % 10;
+      if (!d) return '';
+      return (d === 1 && unit > 1 ? '' : SINO[d]) + name;
+    }).join('');
+  }
+
+  // 시·살·개처럼 고유어로 읽는 단위 앞의 꼴 (20은 '스무')
+  function nativeNumber(n) {
+    if (n === 20) return '스무';
+    return NATIVE_TENS[Math.floor(n / 10)] + NATIVE_ONES[n % 10];
+  }
+
+  // 정규화된 문장의 숫자를 한자어·고유어 읽기로 바꾼 후보들 (숫자가 없으면 원문 하나)
+  function readings(s) {
+    if (!/\d/.test(s)) return [s];
+    const sino = s.replace(/\d+/g, (d) => sinoNumber(Number(d)));
+    const native = s.replace(/\d+/g, (d) => (Number(d) >= 1 && Number(d) <= NATIVE_MAX ? nativeNumber(Number(d)) : sinoNumber(Number(d))));
+    return sino === native ? [sino] : [sino, native];
+  }
+
+  function bestOf(as, bs, score) {
+    let best = 0;
+    as.forEach((a) => bs.forEach((b) => { best = Math.max(best, score(a, b)); }));
+    return best;
+  }
+
+  // 0~1, 띄어쓰기·문장부호를 무시하고 자모 단위로 비교한 일치율. 숫자는 읽는 방식 차이를 무시
   function similarity(expected, spoken) {
-    const a = normalize(expected);
-    const b = normalize(spoken);
-    if (!a.length && !b.length) return 1;
-    return 1 - levenshtein(a, b) / Math.max(a.length, b.length);
+    return bestOf(readings(normalize(expected)), readings(normalize(spoken)), jamoSimilarity);
+  }
+
+  const WORD_MATCH = 0.8;  // 단어 표시에서 '맞음'으로 볼 자모 일치율 (빨라↔발라 = 0.8)
+
+  // spoken 안에 word와 소리가 거의 같은 구간이 있는지 (앞뒤 한 음절 차이까지 허용)
+  function containsSimilar(spoken, word) {
+    if (spoken.includes(word)) return true;
+    const said = Array.from(spoken);
+    const len = Array.from(word).length;
+    for (let size = Math.max(1, len - 1); size <= len + 1; size++) {
+      for (let i = 0; i + size <= said.length; i++) {
+        if (jamoSimilarity(word, said.slice(i, i + size).join('')) >= WORD_MATCH) return true;
+      }
+    }
+    return false;
   }
 
   // 단어별 맞음/틀림 표시용
   function wordDiff(expected, spoken) {
-    const said = normalize(spoken);
+    const said = readings(normalize(spoken));
     return String(expected || '').split(/\s+/).filter(Boolean).map((w) => {
       const n = normalize(w);
-      return { word: w, ok: !n || said.includes(n) };
+      return { word: w, ok: !n || readings(n).some((r) => said.some((s) => containsSimilar(s, r))) };
     });
+  }
+
+  // 인식기가 준 후보 문장들 중, 지금까지 말한 내용(prefix)에 붙였을 때 대사와 가장 가까운 것
+  function bestAlternative(expected, prefix, candidates) {
+    let best = '';
+    let bestScore = -1;
+    (candidates || []).forEach((c) => {
+      const score = similarity(expected, (prefix + ' ' + c).trim());
+      if (score > bestScore) { best = c; bestScore = score; }
+    });
+    return best;
+  }
+
+  // 말이 끝났다고 볼 침묵 길이(ms). 긴 대사, '...' 같은 쉼이 있는 대사는 연기 호흡을 기다려 줌
+  const SILENCE_BASE_MS = 1400;
+  const SILENCE_PER_CHAR_MS = 30;    // 12글자를 넘는 글자마다
+  const SILENCE_PAUSE_MS = 700;      // '...', '…', '—' 가 있으면
+  const SILENCE_MAX_MS = 3200;
+  function silenceForLine(text) {
+    const chars = normalize(text).length;
+    const pause = /\.\.\.|…|—/.test(String(text || '')) ? SILENCE_PAUSE_MS : 0;
+    return Math.min(SILENCE_MAX_MS, SILENCE_BASE_MS + Math.max(0, chars - 12) * SILENCE_PER_CHAR_MS + pause);
   }
 
   function firstLetterHint(text) {
@@ -149,7 +244,7 @@
   function detectMood(text) { return findByWords(MOODS, text); }
   function detectEmotion(text) { return findByWords(EMOTIONS, text); }
 
-  const api = { parseScript, listCharacters, renameCharacter, similarity, wordDiff, firstLetterHint, detectMood, detectEmotion, normalize };
+  const api = { parseScript, listCharacters, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, firstLetterHint, detectMood, detectEmotion, normalize };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ScriptKit = api;
 })(this);
