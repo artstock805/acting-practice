@@ -38,3 +38,15 @@ test('shortVoiceName trims vendor noise', () => {
   assert.strictEqual(V.shortVoiceName('Microsoft SunHi Online (Natural) - Korean (Korean)'), 'SunHi (자연스러운 음성)');
   assert.strictEqual(V.shortVoiceName('Microsoft Heami - Korean (Korean)'), 'Heami');
 });
+
+test('Google voices clash only with the same Google voice at a similar speed', () => {
+  const cast = {
+    A: { cloudVoice: 'ko-KR-Chirp3-HD-Kore', rateScale: 1 },
+    B: { cloudVoice: 'ko-KR-Chirp3-HD-Kore', rateScale: 1.05 },
+    C: { cloudVoice: 'ko-KR-Chirp3-HD-Puck', rateScale: 1 },
+    D: { voiceURI: '', pitch: 1, rateScale: 1 },
+    E: { voiceURI: '', pitch: 1, rateScale: 1 },
+  };
+  assert.deepStrictEqual([...V.findVoiceClashes(cast)].sort(), ['A', 'B', 'D', 'E']);
+  assert.strictEqual(V.resolveVoice(cast.C).cloudVoice, 'ko-KR-Chirp3-HD-Puck');
+});

@@ -8,9 +8,12 @@
   const FI = window.FileImport;
   const STORE_KEY = 'acting-practice-v1';
   const V = window.VoiceKit;
+  const VC = window.VoiceCatalog;
+  const CT = window.CloudTTS;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
+  const CLOUD_NARRATOR = { ...NARRATOR_VOICE, cloudVoice: VC.NARRATOR_VOICE_ID };
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v25';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v26';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -62,7 +65,7 @@
     chars.forEach((c, i) => { cast[c.name] = state.cast[c.name] || { mine: i === 0 && !myNames().length, isNew: true }; });
     // 새로 나온 상대 배역에게는 서로 다른 목소리를 자동 배분 (기존 인물 설정은 유지)
     const newOthers = chars.map((c) => c.name).filter((n) => cast[n].isNew && !cast[n].mine);
-    const assigned = V.distributeVoices(newOthers, availableVoiceURIs());
+    const assigned = distributeAllVoices(newOthers, cast);
     Object.keys(cast).forEach((n) => { const { isNew, ...rest } = cast[n]; cast[n] = { ...rest, ...(assigned[n] || {}) }; });
     update({ text, items, cast, index: 0, results: {}, mergeDismissed: [] });
     renderCast();
@@ -99,6 +102,39 @@
 
   function availableVoiceURIs() { return S.getKoreanVoices().map((v) => v.voiceURI); }
 
+  // 서버가 있으면 Google 목소리를, 없으면(PC에서 파일로 열기 등) 이 기기의 음성을 나눠 줌
+  function distributeAllVoices(names, cast) {
+    if (CT.available) return distributeCloudVoices(names, cast);
+    const device = V.distributeVoices(names, availableVoiceURIs());
+    return Object.fromEntries(Object.entries(device).map(([n, v]) => [n, { ...v, cloudVoice: '' }]));
+  }
+
+  // 가장 낮은 목소리, 가장 높은 목소리, 그다음 낮은 목소리… 순서로 (이웃한 배역끼리 확실히 다르게)
+  function interleaveByPitch(list) {
+    const sorted = [...list].sort((a, b) => a.pitch - b.pitch);
+    const out = [];
+    for (let i = 0, j = sorted.length - 1; i <= j; i++, j--) {
+      out.push(sorted[i]);
+      if (i !== j) out.push(sorted[j]);
+    }
+    return out;
+  }
+
+  // AI 분석으로 성별을 알면 같은 성별 목소리를, 모르면 남녀를 번갈아 줌. 높고 낮은 목소리를 섞어 서로 구별되게 함
+  function distributeCloudVoices(names, cast) {
+    const pools = { male: interleaveByPitch(VC.CASTABLE.filter((v) => v.gender === 'male')), female: interleaveByPitch(VC.CASTABLE.filter((v) => v.gender === 'female')) };
+    const used = { male: 0, female: 0 };
+    let alternate = 0;
+    return Object.fromEntries(names.map((name) => {
+      const known = cast[name] && cast[name].profile && cast[name].profile.gender;
+      const gender = known === 'male' || known === 'female' ? known : (alternate++ % 2 ? 'female' : 'male');
+      const pool = pools[gender];
+      const voice = pool[used[gender]++ % pool.length];
+      const rateScale = cast[name] && typeof cast[name].rateScale === 'number' ? VC.clampRate(cast[name].rateScale) : 1;  // AI가 고른 속도는 유지
+      return [name, { cloudVoice: voice.id, rateScale, persona: 'auto' }];
+    }));
+  }
+
   function renderCast() {
     const voices = S.getKoreanVoices();
     const clashes = V.findVoiceClashes(state.cast);
@@ -125,7 +161,9 @@
       cells.forEach((n) => { const td = el('td'); td.append(n); tr.append(td); });
       body.append(tr);
     });
-    $('voice-count').textContent = voices.length > 1
+    $('voice-count').textContent = CT.available
+      ? 'Google 목소리 ' + VC.CASTABLE.length + '가지 중에서 고를 수 있어요. AI 분석을 누르면 배역에 맞게 골라 줍니다.'
+      : voices.length > 1
       ? `이 브라우저의 한국어 음성 ${voices.length}개를 나눠 씁니다.`
       : '이 브라우저에는 한국어 음성이 1개뿐이라 높낮이·속도로 구분합니다. Edge에서 열면 음성이 더 많습니다.';
   }
@@ -133,7 +171,7 @@
   // 인물 한 명의 목소리 설정: 성격 프리셋 · 음성 · 높낮이 · 속도
   function voiceControls(name, cfg, voices, isClash) {
     const v = V.resolveVoice(cfg);
-    const box = el('div', { className: 'voice-box' });
+    const box = el('div', { className: 'voice-box' + (v.cloudVoice ? ' is-cloud' : '') });
 
     const preset = el('select', { title: '목소리 성격' });
     const current = V.matchPreset(cfg);
@@ -146,13 +184,24 @@
     };
 
     const voice = el('select', { title: '음성' });
-    voice.append(el('option', { value: '', textContent: '기본 음성', selected: !v.voiceURI }));
-    voices.forEach((x) => voice.append(el('option', { value: x.voiceURI, textContent: V.shortVoiceName(x.name), selected: v.voiceURI === x.voiceURI })));
-    voice.onchange = () => changeVoice(name, { voiceURI: voice.value });
+    if (CT.available) {
+      const cloud = el('optgroup', { label: 'Google 목소리 (자연스러움)' });
+      VC.CASTABLE.forEach((x) => cloud.append(el('option', { value: 'cloud:' + x.id, textContent: VC.voiceLabel(x), selected: v.cloudVoice === x.id })));
+      voice.append(cloud);
+    }
+    const device = el('optgroup', { label: '이 기기의 음성' });
+    device.append(el('option', { value: '', textContent: '기본 음성', selected: !v.cloudVoice && !v.voiceURI }));
+    voices.forEach((x) => device.append(el('option', { value: x.voiceURI, textContent: V.shortVoiceName(x.name), selected: !v.cloudVoice && v.voiceURI === x.voiceURI })));
+    voice.append(device);
+    voice.onchange = () => changeVoice(name, voice.value.startsWith('cloud:')
+      ? { cloudVoice: voice.value.slice('cloud:'.length) }
+      : { cloudVoice: '', voiceURI: voice.value });
 
-    box.append(preset, voice,
-      slider('높낮이', 0.5, 2, 0.05, v.pitch, (val) => changeVoice(name, { pitch: val, persona: 'custom' })),
-      slider('속도', 0.6, 1.5, 0.05, v.rateScale, (val) => changeVoice(name, { rateScale: val, persona: 'custom' })));
+    // Google 목소리는 높낮이를 바꿀 수 없어 성격 프리셋·높낮이는 이 기기 음성일 때만 보여 줌
+    box.append(...(v.cloudVoice ? [] : [preset]), voice,
+      ...(v.cloudVoice ? [] : [slider('높낮이', 0.5, 2, 0.05, v.pitch, (val) => changeVoice(name, { pitch: val, persona: 'custom' }))]),
+      slider('속도', VC.MIN_RATE, VC.MAX_RATE, 0.05, Math.min(VC.MAX_RATE, Math.max(VC.MIN_RATE, v.rateScale)), (val) => changeVoice(name, { rateScale: val, persona: 'custom' })));
+    if (cfg.profile) box.append(profileNote(cfg.profile));
     if (isClash) box.append(el('div', { className: 'clash', textContent: '⚠ 다른 상대 배역과 목소리가 거의 같아요' }));
     return box;
   }
@@ -177,9 +226,53 @@
     S.speak(sampleLine ? sampleLine.text : name, voiceCfg(name, null));
   }
 
+  // AI가 읽어 낸 인물 정보: "남성 · 20대 — 소심하지만 야심 있는 회사원" (누르면 말투·추천 이유까지)
+  function profileNote(p) {
+    const gender = p.gender === 'male' ? '남성' : p.gender === 'female' ? '여성' : '성별 모름';
+    const box = el('details', { className: 'profile' });
+    box.append(el('summary', { textContent: `🤖 ${gender} · ${p.age} — ${p.personality}` }),
+      el('p', { textContent: '말투: ' + p.speech }), el('p', { textContent: '목소리 추천 이유: ' + p.reason }));
+    return box;
+  }
+
+  // 대본을 서버(Claude)로 보내 배역마다 성격을 읽고 목소리를 추천받아 바로 적용
+  async function analyzeCast() {
+    const btn = $('btn-ai-cast');
+    const names = K.listCharacters(state.items).map((c) => c.name);
+    if (!names.length) return;
+    btn.disabled = true;
+    setAiStatus('🤖 대본을 읽고 배역을 분석하는 중… (긴 대본은 30초~1분)');
+    try {
+      const res = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: state.text, characters: names }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `분석 실패 (${res.status})`);
+      const cast = { ...state.cast };
+      body.characters.forEach((c) => {
+        const { name: sent, voice, rate, ...profile } = c;
+        const name = cast[sent] ? sent : names.find((n) => n.slice(0, 40) === sent);  // 서버는 긴 이름을 40자로 자름
+        if (!name) return;
+        cast[name] = { ...cast[name], profile, ...(voice ? { cloudVoice: voice, rateScale: rate, persona: 'ai' } : {}) };
+      });
+      update({ cast });
+      renderCast();
+      setAiStatus(`✅ ${body.characters.length}명의 배역을 분석해 목소리를 골랐어요. 🔊로 들어 보고 마음에 안 들면 바꾸세요.`);
+    } catch (err) {
+      setAiStatus('⚠ ' + (err.message || 'AI 분석에 실패했습니다.'), true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function setAiStatus(text, isError) {
+    const box = $('ai-status');
+    box.hidden = !text;
+    box.textContent = text;
+    box.classList.toggle('error', !!isError);
+  }
+
   function autoAssignVoices() {
     const others = K.listCharacters(state.items).map((c) => c.name).filter((n) => !state.cast[n].mine);
-    const assigned = V.distributeVoices(others, availableVoiceURIs());
+    const assigned = distributeAllVoices(others, state.cast);
     const cast = Object.fromEntries(Object.entries(state.cast).map(([n, c]) => [n, { ...c, ...(assigned[n] || {}) }]));
     update({ cast });
     renderCast();
@@ -229,8 +322,13 @@
     }
   }
 
+  // 배역 중 누구라도 Google 목소리를 쓰면 해설도 Google 목소리로 (음질을 맞춤)
+  function narratorVoice() {
+    return CT.available && Object.values(state.cast).some((c) => c.cloudVoice && !c.mine) ? CLOUD_NARRATOR : NARRATOR_VOICE;
+  }
+
   function voiceCfg(name, item) {
-    const v = name === NARRATOR ? NARRATOR_VOICE : V.resolveVoice(state.cast[name]);
+    const v = name === NARRATOR ? narratorVoice() : V.resolveVoice(state.cast[name]);
     const emotion = item ? K.detectEmotion(item.note) : null;
     return { ...v, rate: state.opts.rate, emotionKey: emotion && emotion.key };
   }
@@ -310,8 +408,20 @@
     $('btn-play').textContent = '▶ 시작';
   }
 
+  // 앞으로 읽을 상대 대사·지문 몇 개를 미리 받아 두어 대사 사이 끊김을 줄임 (Google 목소리일 때만 실제로 받음)
+  const PREFETCH_AHEAD = 3;
+  function prefetchAhead(from) {
+    state.items.slice(from, from + PREFETCH_AHEAD).forEach((item) => {
+      if (item.type === 'direction' && state.opts.directions) S.prefetch(item.text, voiceCfg(NARRATOR));
+      if (item.type !== 'line' || !state.cast[item.character]) return;
+      if (state.cast[item.character].mine) { if (item.note) S.prefetch(item.note, voiceCfg(NARRATOR)); return; }
+      K.splitAsides(withNote(item)).forEach((p) => S.prefetch(p.text, p.aside ? voiceCfg(NARRATOR) : voiceCfg(item.character, item)));
+    });
+  }
+
   async function step(item, token) {
     renderItem(item);
+    prefetchAhead(state.index);
     if (item.type === 'scene') { await sleep(900); return 'next'; }
     if (item.type === 'direction') {
       if (state.opts.directions) { setRowPhase('speaking'); await S.speak(item.text, voiceCfg(NARRATOR)); setRowPhase(''); } else await sleep(700);
@@ -789,6 +899,7 @@
     $('btn-parse').onclick = parseAndGo;
     $('btn-to-practice').onclick = goPractice;
     $('btn-auto-voices').onclick = autoAssignVoices;
+    $('btn-ai-cast').onclick = analyzeCast;
     $('btn-phone').onclick = () => { $('phone-dialog').showModal(); loadQrLibrary().then(showPhoneQr, () => { /* 못 불러오면 기본 QR 그림을 그대로 둠 */ }); };
     $('btn-play').onclick = () => {
       S.unlock();  // iOS는 첫 음성을 사용자 터치 안에서 내야 이후 낭독이 허용됨
@@ -901,6 +1012,14 @@
       // 휴대폰은 터치 안에서만 오디오를 켜게 해 줌. 연습은 ▶ 말고도 여러 경로로 시작되니 화면 어디를 눌러도 켜 둠
       document.addEventListener('pointerdown', () => C.unlock(), { capture: true, passive: true });
     }
+    // 휴대폰은 첫 소리를 터치 안에서 내야 Google 목소리 재생이 허용됨
+    document.addEventListener('pointerdown', () => CT.unlock(), { capture: true, passive: true });
+    let cloudErrorShown = false;
+    S.setCloudErrorHandler((err) => {
+      if (cloudErrorShown) return;
+      cloudErrorShown = true;
+      setMic('⚠ Google 목소리를 불러오지 못해 이 기기의 기본 음성으로 읽어요. (' + err.message + ')');
+    });
     S.onVoicesReady(() => { if (state.items.length) renderCast(); });
     if (state.items.length) renderCast();
     enableTabs();

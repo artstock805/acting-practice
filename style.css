@@ -88,6 +88,10 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .info-btn { flex: none; }
 .info-btn { background: none; border: 1px solid var(--line); color: var(--spot); border-radius: 999px; width: 28px; height: 28px; padding: 0; cursor: pointer; font-size: 0.95rem; line-height: 1; }
 .info-btn[aria-expanded="true"] { background: var(--spot); color: var(--stage); }
+.ai-box { margin: 12px 0; }
+.voice-box .profile { grid-column: 1 / -1; font-size: 0.85rem; color: var(--muted); }
+.voice-box .profile summary { cursor: pointer; color: var(--paper); }
+.voice-box .profile p { margin: 4px 0 0; }
 .option-help { flex-basis: 100%; margin: 4px 0 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--stage-2); color: var(--paper); font-size: 0.88rem; line-height: 1.6; }
 
 /* 무대 */

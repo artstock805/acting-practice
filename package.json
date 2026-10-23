@@ -1,0 +1,12 @@
+{
+  "name": "acting-practice",
+  "private": true,
+  "description": "대사 연습 파트너 — Cloud Run 서버 (정적 앱 + 음성 인식·합성·AI 배역 분석)",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.132.1"
+  }
+}
