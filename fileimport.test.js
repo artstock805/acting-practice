@@ -312,3 +312,34 @@ test('PDF: a sentence wrapped across a page break is joined', () => {
   ]);
   assert.strictEqual(F.joinPdfRows([...page1, ...page2]), '민수: 짧은 줄.\n탱크는 소희에게 자기가 제일이라는 몸 시늉을 한다. 소희는 흩어 져 있는 잡지를 훑어본다.\n민수: 다음.');
 });
+
+// ---------- 리뷰: 망가진·악의적인 파일에도 멈추지 않고 안내 ----------
+test('corrupt .hwp headers (bad sector size, empty directory) give a message instead of hanging', async () => {
+  const bad = Buffer.from(makeHwp(['안녕']));
+  bad.writeUInt16LE(30, 30);                       // 섹터 크기 2^30
+  await assert.rejects(extract('bad.hwp', bad), F.ImportError);
+  const noDir = Buffer.from(makeHwp(['안녕']));
+  noDir.writeUInt32LE(0xfffffffe, 48);             // 디렉터리 없음
+  await assert.rejects(extract('nodir.hwp', noDir), F.ImportError);
+});
+
+test('a DIFAT chain that points to itself does not loop forever', async () => {
+  const loop = Buffer.from(makeHwp(['안녕']));
+  loop.writeUInt32LE(0, 68);                       // DIFAT 시작 = 0번 섹터
+  loop.writeUInt32LE(1, 72);
+  const started = Date.now();
+  await extract('loop.hwp', loop).catch(() => {});
+  assert.ok(Date.now() - started < 2000);
+});
+
+test('decompression output is capped (zip bomb)', async () => {
+  const bomb = makeZip({ 'word/document.xml': '<w:p><w:t>' + 'a'.repeat(5_000_000) + '</w:t></w:p>' });
+  const small = async (u8) => { const out = zlib.inflateRawSync(u8); if (out.length > 1_000_000) throw new F.ImportError('압축을 푼 크기가 너무 큽니다.'); return new Uint8Array(out); };
+  await assert.rejects(F.extractScriptText({ name: 'b.docx', bytes: new Uint8Array(bomb) }, { inflateRaw: small }), /너무 큽니다/);
+  assert.ok(F.MAX_INFLATED_BYTES >= 50 * 1024 * 1024);
+});
+
+test('invalid numeric character references in XML do not throw', async () => {
+  const doc = '<w:document><w:body><w:p><w:r><w:t>A&#x110000;B&#999999999;C</w:t></w:r></w:p></w:body></w:document>';
+  assert.strictEqual((await extract('x.docx', makeZip({ 'word/document.xml': doc }))).text, 'A&#x110000;B&#999999999;C');
+});

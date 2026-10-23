@@ -14,13 +14,30 @@
   const MAX_SPOKEN_NAME_LEN = 6;
   const PARTICLE_END = /[이가은는을를의와과도에]$/;
   const NOT_NAMES = new Set(['그리고', '그때', '이때', '다시', '모두', '잠시', '한편', '무대', '조명', '암전', '음악', '효과', '그러자', '그런데', '하지만',
-    '과거', '현재', '장면', '다음', '이어', '이윽고', '등장인물']);
+    '과거', '현재', '장면', '다음', '이어', '이윽고', '등장인물',
+    // 대사·지문 첫머리에 흔한 말 (시나리오·쌍점 대본에서 이름으로 오인하지 않게)
+    '아니', '아니야', '우리', '그래', '근데', '내가', '네가', '그럼', '그냥', '정말', '진짜', '이제', '지금', '여기', '저기', '거기',
+    '그건', '이건', '저건', '어서', '자네', '당신', '혹시', '제발', '얼른', '빨리', '아마', '역시', '그러니까', '그러면']);
   const SPOKEN_LINE_RE = /^([가-힣A-Za-z]{1,6})\s+(\S.*)$/;
+  // 문서 전체가 희곡식일 때만 이 인식을 켬: 이름으로 시작하는 줄이 이 비율 이상이고, 쌍점·시나리오식 줄보다 확실히 많아야 함
+  const PLAY_MIN_SHARE = 0.3;
 
   function findSpokenNames(lines) {
+    const candidates = speakerCandidates(lines);
+    if (!candidates.size) return candidates;
+    const nonEmpty = lines.map((l) => String(l).trim()).filter(Boolean);
+    const spoken = nonEmpty.filter((l) => { const m = SPOKEN_LINE_RE.exec(l); return m && candidates.has(m[1]); }).length;
+    const colon = nonEmpty.filter((l) => { const m = l.match(INLINE_RE); return m && looksLikeName(m[1]); }).length;
+    const standalone = nonEmpty.filter(isStandaloneName).length;
+    const playLike = spoken >= nonEmpty.length * PLAY_MIN_SHARE && spoken > colon * 2 && standalone < spoken * 0.6;
+    return playLike ? candidates : new Set();
+  }
+
+  // 줄 맨 앞에 MIN_SPEAKER_LINES번 이상 나오는 짧은 단어 (조사·조각·흔한 첫말 제외)
+  function speakerCandidates(lines) {
     const counts = new Map();
     lines.forEach((raw) => {
-      const m = SPOKEN_LINE_RE.exec(raw.trim());
+      const m = SPOKEN_LINE_RE.exec(String(raw).trim());
       if (m) counts.set(m[1], (counts.get(m[1]) || 0) + 1);
     });
     const names = new Set();
@@ -79,7 +96,7 @@
         return;
       }
       // 희곡식('이름 대사') 대본이면 '김상범 전세환' 같은 배역표 줄을 시나리오식 이름 줄로 보지 않음
-      if (spokenNames.size < 2 && isStandaloneName(line)) { pendingName = { name: line, note: '' }; return; }
+      if (!spokenNames.size && isStandaloneName(line)) { pendingName = { name: line, note: '' }; return; }
       items.push({ type: 'direction', text: line, scene });
     });
     return items;

@@ -4,6 +4,7 @@
   'use strict';
 
   const MAX_FILE_BYTES = 30 * 1024 * 1024;
+  const MAX_INFLATED_BYTES = 200 * 1024 * 1024;   // 압축을 풀었을 때 한도 (압축 폭탄 파일 방지)
   const PDFJS_DIR = 'vendor/pdfjs/';
 
   // 사용자에게 그대로 보여 줄 수 있는 안내 문구를 담은 오류
@@ -57,7 +58,10 @@
   function xmlUnescape(s) {
     return s.replace(/&(#x[0-9a-f]+|#\d+|lt|gt|amp|quot|apos);/gi, (m, e) => {
       const k = e.toLowerCase();
-      if (k[0] === '#') return String.fromCodePoint(k[1] === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10));
+      if (k[0] === '#') {
+        const code = k[1] === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10);
+        return code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;   // 잘못된 번호는 그대로 둠
+      }
       return { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" }[k];
     });
   }
@@ -158,22 +162,31 @@
 
   // ---------- CFB/OLE (한글 .hwp 5.0 컨테이너) ----------
   const END_OF_CHAIN = 0xfffffffe;
+  const CFB_BROKEN = '문서 구조가 올바르지 않습니다. 파일이 손상되었을 수 있어요.';
   function readCfb(b) {
-    const sectorSize = 1 << u16(b, 30);
-    const miniSize = 1 << u16(b, 32);
+    const sectorShift = u16(b, 30);
+    const miniShift = u16(b, 32);
+    // 규격상 섹터는 512 또는 4096바이트, 작은 섹터는 64바이트. 다른 값이면 손상(또는 악의적인) 파일
+    if ((sectorShift !== 9 && sectorShift !== 12) || miniShift !== 6) fail(CFB_BROKEN);
+    const sectorSize = 1 << sectorShift;
+    const miniSize = 1 << miniShift;
     const cutoff = u32(b, 56);
     const sectorOffset = (i) => (i + 1) * sectorSize;
     const maxSectors = Math.ceil(b.length / sectorSize) + 1;
 
-    // FAT 섹터 목록: 헤더의 DIFAT 109개 + 이어지는 DIFAT 섹터
+    // FAT 섹터 목록: 헤더의 DIFAT 109개 + 이어지는 DIFAT 섹터 (같은 섹터를 다시 가리키는 고리는 끊음)
     const fatSectors = [];
     for (let i = 0; i < 109; i++) { const s = u32(b, 76 + i * 4); if (s < 0xfffffffa) fatSectors.push(s); }
+    const seenDifat = new Set();
     let difat = u32(b, 68);
-    for (let guard = 0; difat < 0xfffffffa && guard < maxSectors; guard++) {
+    while (difat < 0xfffffffa && !seenDifat.has(difat) && fatSectors.length < maxSectors) {
+      seenDifat.add(difat);
       const off = sectorOffset(difat);
+      if (off + sectorSize > b.length) break;
       for (let i = 0; i < sectorSize / 4 - 1; i++) { const s = u32(b, off + i * 4); if (s < 0xfffffffa) fatSectors.push(s); }
       difat = u32(b, off + sectorSize - 4);
     }
+    fatSectors.length = Math.min(fatSectors.length, maxSectors);
     const fat = [];
     fatSectors.forEach((s) => { const off = sectorOffset(s); for (let i = 0; i < sectorSize / 4; i++) fat.push(u32(b, off + i * 4)); });
 
@@ -200,24 +213,27 @@
       });
     }
     const rootEntry = entries[0];
+    if (!rootEntry || rootEntry.type !== 5) fail(CFB_BROKEN);
     const miniStream = readChain(rootEntry.start);
     const miniFatBytes = readChain(u32(b, 60));
     const miniFat = [];
     for (let i = 0; i + 4 <= miniFatBytes.length; i += 4) miniFat.push(u32(miniFatBytes, i));
 
     // 디렉터리 트리를 펼쳐 '저장소/스트림' 경로로 찾을 수 있게 함
+    // 재귀 대신 스택: 아주 긴 형제 사슬이 있는 파일에서도 호출 스택이 넘치지 않게
     const paths = {};
-    const visit = (id, prefix, seen) => {
-      if (id >= entries.length || seen.has(id)) return;
+    const seen = new Set();
+    const stack = [[rootEntry.child, '']];
+    while (stack.length) {
+      const [id, prefix] = stack.pop();
+      if (id >= entries.length || seen.has(id)) continue;
       seen.add(id);
       const e = entries[id];
-      visit(e.left, prefix, seen);
-      visit(e.right, prefix, seen);
       const path = prefix ? `${prefix}/${e.name}` : e.name;
       paths[path] = e;
-      if (e.type === 1) visit(e.child, path, seen);
-    };
-    visit(rootEntry.child, '', new Set());
+      stack.push([e.left, prefix], [e.right, prefix]);
+      if (e.type === 1) stack.push([e.child, path]);
+    }
 
     return {
       paths: Object.keys(paths),
@@ -389,8 +405,8 @@
   // 희곡처럼 '이름 대사'로 쓴 대본이면 문서 전체에서 인물 이름을 찾아, 그 이름으로 시작하는 줄도 새 줄로 둠
   function newLineTest(rows) {
     const K = root.ScriptKit;
-    const names = K && K.findSpokenNames ? K.findSpokenNames(rows.map((r) => r.text)) : new Set();
-    return (text) => NEW_LINE_START.test(text) || [...names].some((n) => text.startsWith(n + ' '));
+    const names = [...(K && K.findSpokenNames ? K.findSpokenNames(rows.map((r) => r.text)) : [])];
+    return (text) => NEW_LINE_START.test(text) || names.some((n) => text.startsWith(n + ' '));
   }
 
   // 새 줄로 시작해야 하는 줄: '이름:' '이름(지문):', 괄호 지문, 장면 제목
@@ -416,10 +432,12 @@
     const dir = new URL(PDFJS_DIR, baseUrl).href;
     const pdfjs = await import(dir + 'pdf.min.mjs');
     pdfjs.GlobalWorkerOptions.workerSrc = dir + 'pdf.worker.min.mjs';
+    const task = pdfjs.getDocument({ data: b, cMapUrl: dir + 'cmaps/', cMapPacked: true, isEvalSupported: false });
     let doc;
     try {
-      doc = await pdfjs.getDocument({ data: b, cMapUrl: dir + 'cmaps/', cMapPacked: true, isEvalSupported: false }).promise;
+      doc = await task.promise;
     } catch (err) {
+      task.destroy();   // 열다 실패해도 PDF 처리기(worker)를 정리
       if (err && err.name === 'PasswordException') fail('암호가 걸린 PDF입니다. 암호를 풀고 저장한 뒤 다시 열어 주세요.');
       fail('PDF를 열지 못했습니다. 파일이 손상되었을 수 있어요.');
     }
@@ -453,14 +471,36 @@
       .trim();
   }
 
-  // 브라우저 기본 압축 해제 (Chrome 80+, Safari 16.4+)
+  // 브라우저 기본 압축 해제 (Chrome 80+, Safari 16.4+). 풀린 크기가 한도를 넘으면 멈춤 (압축 폭탄 방지)
   async function browserInflateRaw(data) {
-    const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-    return new Uint8Array(await new Response(stream).arrayBuffer());
+    const reader = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader();
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > MAX_INFLATED_BYTES) { reader.cancel(); fail('압축을 푼 크기가 너무 큽니다. 대본 파일이 맞는지 확인해 주세요.'); }
+      chunks.push(value);
+    }
+    const out = new Uint8Array(total);
+    let off = 0;
+    chunks.forEach((c) => { out.set(c, off); off += c.length; });
+    return out;
   }
 
   // file: { name, bytes(Uint8Array) } → { format, text }. 읽을 수 없으면 ImportError(안내 문구)
-  async function extractScriptText(file, { inflateRaw = browserInflateRaw, baseUrl = root.location && root.location.href } = {}) {
+  // 손상된 파일에서 생기는 예상 못 한 오류도 안내 문구로 바꿔 돌려줌
+  async function extractScriptText(file, options = {}) {
+    try {
+      return await extractUnchecked(file, options);
+    } catch (err) {
+      if (err instanceof ImportError) throw err;
+      throw new ImportError('파일을 읽는 중 문제가 생겼습니다. 파일이 손상되었거나 지원하지 않는 형식일 수 있어요.');
+    }
+  }
+
+  async function extractUnchecked(file, { inflateRaw = browserInflateRaw, baseUrl = root.location && root.location.href } = {}) {
     if (file.bytes.length > MAX_FILE_BYTES) fail(`파일이 너무 큽니다(${Math.round(MAX_FILE_BYTES / 1024 / 1024)}MB까지).`);
     const b = file.bytes;
     if (!b.length) fail('파일이 비어 있습니다.');
@@ -489,7 +529,7 @@
   // 파일 선택 창에서 고를 수 있게 할 확장자
   const ACCEPT = '.txt,.text,.md,.srt,.vtt,.csv,.rtf,.pdf,.docx,.hwp,.hwpx,.odt,text/plain,application/pdf';
 
-  const api = { MAX_FILE_BYTES, ACCEPT, ImportError, extractScriptText, decodeText, xmlToText, readZip, readCfb, rtfText, pdfPageText, pdfPageRows, joinPdfRows, tidy };
+  const api = { MAX_FILE_BYTES, MAX_INFLATED_BYTES, ACCEPT, ImportError, extractScriptText, decodeText, xmlToText, readZip, readCfb, rtfText, pdfPageText, pdfPageRows, joinPdfRows, tidy };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.FileImport = api;
 })(this);

@@ -153,3 +153,17 @@ test('in a "이름 대사" play the cast list is not read as screenplay dialogue
   const chars = K.listCharacters(K.parseScript(script)).map((c) => c.name);
   assert.deepStrictEqual(chars.sort(), ['상범', '용자']);
 });
+
+// ---------- 리뷰: 희곡식 인식이 다른 형식을 망치지 않아야 함 ----------
+test('screenplay with repeated sentence openers keeps its standalone names', () => {
+  const block = '민수\n아니 그게 무슨 소리야\n영희\n우리 이제 그만하자\n';
+  const items = K.parseScript(block.repeat(4));
+  assert.deepStrictEqual(K.listCharacters(items).map((c) => c.name).sort(), ['민수', '영희']);
+  assert.strictEqual(items.filter((i) => i.type === 'line').length, 8);
+});
+
+test('colon scripts with repeated openers do not gain fake speakers', () => {
+  const script = ['민수: 가자.', '우리 가자 말했잖아', '지연: 싫어.', '그래 알았어 하고 나간다', '민수: 왜?', '우리 이제 끝이야 생각한다',
+    '지연: 몰라.', '그래 그럼 그렇게 해', '민수: 그래.', '우리 둘 다 웃는다', '지연: 응.', '그래 하고 퇴장'].join('\n');
+  assert.deepStrictEqual(K.listCharacters(K.parseScript(script)).map((c) => c.name).sort(), ['민수', '지연']);
+});
