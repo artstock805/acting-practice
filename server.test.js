@@ -176,3 +176,14 @@ test('speechContexts split a hint into phrases of at most 100 characters', () =>
   assert.deepStrictEqual(speechContexts(''), []);
   assert.ok(speechContexts('가'.repeat(250))[0].phrases.every((p) => p.length <= 100));
 });
+
+test('pdf.js module and character maps are served with the right types', async () => {
+  await withServer({ transcribe: async () => '' }, async (base) => {
+    const mjs = await fetch(`${base}/vendor/pdfjs/pdf.min.mjs`);
+    assert.strictEqual(mjs.status, 200);
+    assert.match(mjs.headers.get('content-type'), /javascript/);   // 모듈 스크립트는 JS 형식이어야 브라우저가 실행함 (nosniff)
+    const cmap = await fetch(`${base}/vendor/pdfjs/cmaps/UniKS-UCS2-H.bcmap`);
+    assert.strictEqual(cmap.status, 200);
+    assert.strictEqual(cmap.headers.get('content-type'), 'application/octet-stream');
+  });
+});

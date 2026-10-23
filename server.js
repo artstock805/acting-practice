@@ -17,6 +17,7 @@ const STT_URL = 'https://speech.googleapis.com/v1/speech:recognize';
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.webmanifest': 'application/manifest+json; charset=utf-8', '.png': 'image/png', '.ico': 'image/x-icon', '.svg': 'image/svg+xml',
+  '.mjs': 'application/javascript; charset=utf-8', '.bcmap': 'application/octet-stream',   // PDF 읽기(pdf.js) 모듈·한글 글자표
 };
 const NO_CACHE = new Set(['.html', '.js', '.css', '.webmanifest']);  // 코드 파일은 매번 새로 확인 (수정 사항 바로 반영)
 const SECURITY_HEADERS = {

@@ -7,9 +7,39 @@
   const INLINE_RE = new RegExp('^\\s*([^\\s:：()（）][^:：()（）]{0,' + (MAX_NAME_LEN - 1) + '}?)\\s*(\\([^)]*\\))?\\s*[:：]\\s*(.+)$');
   const DIRECTION_RE = /^\s*[(（\[].*[)）\]]\s*$/;
 
-  // "이름: 대사", "이름(속삭이며): 대사", 시나리오식 "이름\n대사" 형식을 모두 지원
+  // ---------- '이름 대사' 형식 (희곡에서 흔함: 쌍점 없이 이름 뒤에 띄어쓰기) ----------
+  // 줄 맨 앞에 여러 번 나오는 짧은 단어를 인물 이름으로 봄. '수철이 들어온다'처럼 조사가 붙은 건 지문
+  const MIN_SPEAKER_LINES = 3;
+  const MIN_SPOKEN_NAME_LEN = 2;   // 한 글자('는' '이' '을')는 PDF 줄바꿈으로 줄 앞에 남은 조각인 경우가 대부분
+  const MAX_SPOKEN_NAME_LEN = 6;
+  const PARTICLE_END = /[이가은는을를의와과도에]$/;
+  const NOT_NAMES = new Set(['그리고', '그때', '이때', '다시', '모두', '잠시', '한편', '무대', '조명', '암전', '음악', '효과', '그러자', '그런데', '하지만',
+    '과거', '현재', '장면', '다음', '이어', '이윽고', '등장인물']);
+  const SPOKEN_LINE_RE = /^([가-힣A-Za-z]{1,6})\s+(\S.*)$/;
+
+  function findSpokenNames(lines) {
+    const counts = new Map();
+    lines.forEach((raw) => {
+      const m = SPOKEN_LINE_RE.exec(raw.trim());
+      if (m) counts.set(m[1], (counts.get(m[1]) || 0) + 1);
+    });
+    const names = new Set();
+    counts.forEach((n, word) => {
+      if (n < MIN_SPEAKER_LINES || word.length < MIN_SPOKEN_NAME_LEN || word.length > MAX_SPOKEN_NAME_LEN || NOT_NAMES.has(word)) return;
+      // 조사로 끝나면: 앞부분이 이름이거나(상범이 → 상범) 많이 나오지 않으면 지문의 주어로 봄. '순이'처럼 이로 끝나는 이름은 자주 나오면 인정
+      if (PARTICLE_END.test(word)) {
+        const stem = word.slice(0, -1);
+        if ((counts.get(stem) || 0) >= MIN_SPEAKER_LINES || n < MIN_SPEAKER_LINES + 2) return;
+      }
+      names.add(word);
+    });
+    return names;
+  }
+
+  // "이름: 대사", "이름(속삭이며): 대사", 시나리오식 "이름\n대사", 희곡식 "이름 대사" 형식을 모두 지원
   function parseScript(text) {
     const lines = String(text || '').replace(/\r/g, '').split('\n');
+    const spokenNames = findSpokenNames(lines);
     const items = [];
     let pendingName = null;
     let scene = '';
@@ -42,7 +72,14 @@
         pendingName = null;
         return;
       }
-      if (isStandaloneName(line)) { pendingName = { name: line, note: '' }; return; }
+      const spoken = SPOKEN_LINE_RE.exec(line);
+      if (spoken && spokenNames.has(spoken[1])) {
+        const { text: speech, note } = splitNote(spoken[2]);
+        items.push({ type: 'line', character: spoken[1], text: speech, note: joinNotes('', note), scene });
+        return;
+      }
+      // 희곡식('이름 대사') 대본이면 '김상범 전세환' 같은 배역표 줄을 시나리오식 이름 줄로 보지 않음
+      if (spokenNames.size < 2 && isStandaloneName(line)) { pendingName = { name: line, note: '' }; return; }
       items.push({ type: 'direction', text: line, scene });
     });
     return items;
@@ -260,7 +297,7 @@
   function detectMood(text) { return findByWords(MOODS, text); }
   function detectEmotion(text) { return findByWords(EMOTIONS, text); }
 
-  const api = { parseScript, listCharacters, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, firstLetterHint, detectMood, detectEmotion, normalize };
+  const api = { parseScript, findSpokenNames, listCharacters, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, firstLetterHint, detectMood, detectEmotion, normalize };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ScriptKit = api;
 })(this);
