@@ -209,3 +209,27 @@ test('each suggestion says why and lists at most three candidates, rare names fi
   assert.ok(s.every((x) => x.to.length >= 1 && x.to.length <= 3 && typeof x.reason === 'string' && x.reason));
   assert.ok(s.findIndex((x) => x.from === '학') < s.findIndex((x) => x.from === '배영민'));
 });
+
+// ---------- 대사 중간의 괄호 지문 ----------
+test('splitAsides separates in-line stage directions from speech, in order', () => {
+  assert.deepStrictEqual(K.splitAsides('네? (용자가 가버린다) 아… 저…. 이거 잘 먹겠습니다.'), [
+    { text: '네?', aside: false }, { text: '용자가 가버린다', aside: true }, { text: '아… 저…. 이거 잘 먹겠습니다.', aside: false },
+  ]);
+  assert.deepStrictEqual(K.splitAsides('그럼（웃으며）가자'), [{ text: '그럼', aside: false }, { text: '웃으며', aside: true }, { text: '가자', aside: false }]);
+  assert.deepStrictEqual(K.splitAsides('그냥 대사'), [{ text: '그냥 대사', aside: false }]);
+});
+
+test('spokenText drops in-line directions so they are not read or scored', () => {
+  assert.strictEqual(K.spokenText('네? (용자가 가버린다) 아… 저….'), '네? 아… 저….');
+  assert.strictEqual(K.spokenText('(관객에게) 네, 이렇습니다.'), '네, 이렇습니다.');
+  assert.strictEqual(K.spokenText('(어찌할 바를 몰라 머뭇거린다)'), '');
+  assert.strictEqual(K.spokenText('짝이 안 맞는 (괄호'), '짝이 안 맞는 (괄호');   // 닫히지 않은 괄호는 그대로
+});
+
+test('the word view and scoring of a line ignore its in-line directions (incl. full-width parentheses)', () => {
+  const line = '아, 이거 미안해서… (어찌할 바를 몰라 머뭇거린다) 고맙습니다.';
+  const said = '아 이거 미안해서 고맙습니다';
+  assert.ok(K.wordDiff(K.spokenText(line), said).every((w) => w.ok));
+  assert.ok(K.wordDiff(line, said).some((w) => !w.ok));                 // 예전: 지문 낱말이 빨간 '틀림'으로 표시됨
+  assert.strictEqual(K.similarity(K.spokenText('그럼（웃으며）가자'), '그럼 가자'), 1);
+});
