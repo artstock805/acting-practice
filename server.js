@@ -4,6 +4,8 @@
 const http = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const zlib = require('node:zlib');
+const crypto = require('node:crypto');
 
 const ROOT = path.resolve(process.env.STATIC_ROOT || __dirname);
 const MAX_AUDIO_BYTES = 1024 * 1024;   // 16kHz 모노 16bit 기준 약 32초
@@ -20,6 +22,8 @@ const MIME = {
   '.mjs': 'application/javascript; charset=utf-8', '.bcmap': 'application/octet-stream',   // PDF 읽기(pdf.js) 모듈·한글 글자표
 };
 const NO_CACHE = new Set(['.html', '.js', '.css', '.webmanifest']);  // 코드 파일은 매번 새로 확인 (수정 사항 바로 반영)
+const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.webmanifest', '.mjs', '.svg']);  // 글자 파일만 압축 (png·bcmap은 이미 압축됨)
+const ASSET_MAX_AGE = 'public, max-age=3600';  // 그림·pdf.js 같은 큰 파일은 한 시간 동안 다시 묻지 않음
 const SECURITY_HEADERS = {
   'Permissions-Policy': 'microphone=(self), camera=(), geolocation=()',
   'X-Content-Type-Options': 'nosniff',
@@ -222,12 +226,47 @@ async function serveStatic(req, res) {
   const ext = path.extname(file).toLowerCase();
   // 앱 폴더 밖, 허용하지 않은 파일 형식, 서버·테스트 코드는 보여 주지 않음
   if (!file.startsWith(ROOT + path.sep) || !MIME[ext] || /(^|[\\/])(server|.*\.test)\.js$/.test(file)) return send(res, 404, 'Not found');
-  try {
+  let entry;
+  try { entry = await loadStatic(file); } catch { return send(res, 404, 'Not found'); }
+  const headers = { 'Content-Type': MIME[ext], 'Cache-Control': NO_CACHE.has(ext) ? 'no-cache' : ASSET_MAX_AGE, ETag: entry.etag };
+  if (COMPRESSIBLE.has(ext)) headers.Vary = 'Accept-Encoding';
+  if (etagMatches(req.headers['if-none-match'], entry.etag)) return send(res, 304, undefined, headers);
+  const encoding = COMPRESSIBLE.has(ext) ? pickEncoding(req.headers['accept-encoding']) : null;
+  const body = encoding ? compressed(entry, encoding) : entry.body;
+  if (encoding) headers['Content-Encoding'] = encoding;
+  send(res, 200, req.method === 'HEAD' ? undefined : body, headers);
+}
+
+// 컨테이너 안의 파일은 바뀌지 않으니 한 번 읽고 압축한 결과를 메모리에 둠 (앱 전체가 수 MB라 부담 없음)
+const staticCache = new Map();
+async function loadStatic(file) {
+  if (!staticCache.has(file)) {
     const body = await fs.readFile(file);
-    send(res, 200, req.method === 'HEAD' ? undefined : body, { 'Content-Type': MIME[ext], ...(NO_CACHE.has(ext) ? { 'Cache-Control': 'no-cache' } : {}) });
-  } catch {
-    send(res, 404, 'Not found');
+    const etag = '"' + crypto.createHash('sha1').update(body).digest('base64url') + '"';
+    staticCache.set(file, { body, etag, br: null, gzip: null });
   }
+  return staticCache.get(file);
+}
+
+// 프록시가 약한 ETag(W/"...")로 바꾸거나 여러 개를 보내도 알아봄
+function etagMatches(header, etag) {
+  return String(header || '').split(',').some((tag) => tag.trim().replace(/^W\//, '') === etag);
+}
+
+function pickEncoding(accept) {
+  const list = String(accept || '').toLowerCase().split(',').map((s) => s.trim().split(';')[0]);
+  if (list.includes('br')) return 'br';
+  if (list.includes('gzip')) return 'gzip';
+  return null;
+}
+
+function compressed(entry, encoding) {
+  if (!entry[encoding]) {
+    entry[encoding] = encoding === 'br'
+      ? zlib.brotliCompressSync(entry.body, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5 } })
+      : zlib.gzipSync(entry.body, { level: 9 });
+  }
+  return entry[encoding];
 }
 
 function route(handleStt, req, res) {
