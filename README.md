@@ -92,22 +92,10 @@ S#1. 카페 / 밤          ← 장면 제목
 
 ### 배포 (Google Cloud Build → Cloud Run)
 `server.js`(Node, 의존성 없음)가 정적 파일과 휴대폰 음성 인식 API(`POST /api/stt`)를 맡습니다. 배포는 `cloudbuild.yaml`이 **테스트 → 이미지 빌드 → Artifact Registry → Cloud Run** 순서로 합니다(테스트가 실패하면 배포 안 함). 내 PC에 Docker가 없어도 됩니다.
-배포는 **staging(시험용)**과 **운영** 두 곳으로 나뉩니다.
-
-| 단계 | 하는 일 | 배포되는 곳 |
-|---|---|---|
-| 작업 병합 | `main`에 PR 병합 → 트리거 `deploy-on-main` | staging: `acting-practice-staging` 서비스 (시험용 주소) |
-| 최종 배포 | staging에서 확인한 뒤 버전 태그 푸시 → 트리거 `release-on-tag` | 운영: `acting-practice` 서비스 (사용자 주소) |
-
-운영 배포 (태그 이름은 앱 버전과 맞춤, 예: `v22`):
+- **자동**: `main` 브랜치에 푸시(병합)하면 Cloud Build 트리거가 배포
+- **수동**:
 ```sh
-git tag v22
-git push origin v22
-```
-- 운영을 되돌리려면 이전 태그의 커밋에 새 태그를 붙여 푸시하거나, Cloud Run 콘솔에서 이전 리비전으로 트래픽을 옮깁니다.
-- 수동 배포(트리거 없이, `_SERVICE`로 대상 선택):
-```sh
-gcloud builds submit --config cloudbuild.yaml --project=acting-practice --region=asia-northeast3 --substitutions=_SERVICE=acting-practice-staging .
+gcloud builds submit --config cloudbuild.yaml --project=acting-practice --region=asia-northeast3 .
 ```
 - 서비스 계정: 빌드 `acting-practice-build`(Cloud Run 배포·이미지 업로드·로그만), 실행 `acting-practice-run`(Speech 사용량만)
 - 비용: GCP 예산 알림 월 5,000원(50·90·100%에서 메일)
