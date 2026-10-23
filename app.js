@@ -10,7 +10,7 @@
   const V = window.VoiceKit;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v20';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v21';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
   const $ = (id) => document.getElementById(id);
   const PHONE_OS = phoneOS();
@@ -292,10 +292,15 @@
     renderItem(item);
     if (item.type === 'scene') { await sleep(900); return 'next'; }
     if (item.type === 'direction') {
-      if (state.opts.directions) await S.speak(item.text, voiceCfg(NARRATOR)); else await sleep(700);
+      if (state.opts.directions) { setRowPhase('speaking'); await S.speak(item.text, voiceCfg(NARRATOR)); setRowPhase(''); } else await sleep(700);
       return 'next';
     }
-    if (!state.cast[item.character].mine) { await speakLine(item, token); return 'next'; }
+    if (!state.cast[item.character].mine) {
+      setRowPhase('speaking');
+      await speakLine(item, token);
+      setRowPhase('');
+      return 'next';
+    }
     if (!speechOf(item)) { await sleep(700); return 'next'; }   // 내 대사가 지문뿐이면 말할 게 없음
     if (!S.canListen) return 'wait';
     return listenForLine(item, token);
@@ -518,12 +523,24 @@
     $('btn-my-take').hidden = !takes[state.index];
     updateStage(item);
     $('progress-bar').style.width = ((state.index + 1) / state.items.length) * 100 + '%';
+    updateCounter();
     markCurrentRow();
-    if (item.type !== 'line') return;
+    // 지문·장면 줄에서도 카드가 지난 대사에 머물지 않고, 아래 목록에서 강조된 줄과 같은 내용을 보여 줌
+    if (item.type === 'scene') return renderLineCard({ who: '🎬 장면', note: '', text: item.text, mine: false, hidden: false });
+    if (item.type === 'direction') return renderLineCard({ who: '📜 지문', note: '', text: item.text, mine: false, hidden: false });
     const mine = state.cast[item.character] && state.cast[item.character].mine;
     const mode = state.opts.mode;
     const text = mine && mode === 'hint' ? hintText(item) : shownText(item);
     renderLineCard({ who: item.character + (mine ? ' (나)' : ''), note: item.note, text, mine, hidden: mine && mode === 'hidden' });
+  }
+
+  // 상황판 위쪽 "대사 12 / 340": 지문·장면 줄에서는 바로 다음 대사 번호를 보여 줌
+  function updateCounter() {
+    const total = lineOrdinals.size;
+    let i = state.index;
+    while (i < state.items.length && !lineOrdinals.has(i)) i++;
+    const n = lineOrdinals.get(i) || total;
+    $('stage-count').textContent = total ? `대사 ${n} / ${total}` : '';
   }
 
   function renderLineCard({ who, note, text, mine, hidden }) {
@@ -574,24 +591,28 @@
   }
 
   // 연습 목록: 화면 전환 때 한 번만 전체를 만들고, 채점·녹음 뒤에는 그 줄만 바꿈 (긴 대본에서 휴대폰이 멈칫하지 않게)
+  // 장면 제목·지문 줄도 넣어서, 위 상황판에 무엇이 나오든 아래 목록의 같은 줄이 강조되게 함
   let transcriptRows = new Map();
+  let lineOrdinals = new Map();  // 항목 번호 → 몇 번째 대사인지 (상황판의 "12 / 340")
 
   function renderTranscript() {
     const rows = new Map();
     const frag = document.createDocumentFragment();
+    const ordinals = new Map();
     state.items.forEach((item, index) => {
-      if (item.type !== 'line') return;
+      if (item.type === 'line') ordinals.set(index, ordinals.size + 1);
       const li = transcriptRow(item, index);
       rows.set(index, li);
       frag.append(li);
     });
     transcriptRows = rows;
+    lineOrdinals = ordinals;
     $('transcript').replaceChildren(frag);
   }
 
   function refreshTranscriptRow(index) {
     const old = transcriptRows.get(index);
-    if (!old) return;  // 목록에 없는 줄(지문·장면 제목)은 바꿀 것이 없음
+    if (!old) return;
     const li = transcriptRow(state.items[index], index);
     transcriptRows = new Map(transcriptRows).set(index, li);
     old.replaceWith(li);
@@ -599,11 +620,19 @@
 
   function markCurrentRow() {
     const prev = $('transcript').querySelector('li.current');
-    if (prev) prev.classList.remove('current');
+    if (prev) prev.classList.remove('current', 'speaking', 'listening');
     const cur = transcriptRows.get(state.index);
     if (!cur) return;
     cur.classList.add('current');
     scrollWithinList(cur);
+  }
+
+  // 지금 줄이 무엇을 하는 중인지 목록에도 표시: 상대역이 읽는 중(speaking) · 내가 말할 차례(listening)
+  function setRowPhase(phase) {
+    const cur = transcriptRows.get(state.index);
+    if (!cur) return;
+    cur.classList.toggle('speaking', phase === 'speaking');
+    cur.classList.toggle('listening', phase === 'listening');
   }
 
   // 지금 줄이 보이도록 목록 상자 안에서만 스크롤함. scrollIntoView는 화면 전체도 움직여서,
@@ -616,6 +645,13 @@
   }
 
   function transcriptRow(item, index) {
+    if (item.type !== 'line') {
+      const li = el('li', { className: item.type === 'scene' ? 'scene-row' : 'dir-row', textContent: item.type === 'scene' ? item.text : `(${item.text})` });
+      li.dataset.index = index;
+      li.classList.toggle('current', index === state.index);
+      li.onclick = () => jumpTo(index, false);
+      return li;
+    }
     const mine = state.cast[item.character] && state.cast[item.character].mine;
     const li = el('li', { className: mine ? 'mine' : '' });
     li.dataset.index = index;
@@ -635,7 +671,11 @@
     return li;
   }
 
-  function setMic(text, listening) { $('mic-status').textContent = text; $('mic-status').classList.toggle('listening', !!listening); }
+  function setMic(text, listening) {
+    $('mic-status').textContent = text;
+    $('mic-status').classList.toggle('listening', !!listening);
+    setRowPhase(listening ? 'listening' : '');
+  }
   function setRetryButtons(show) { ['btn-retry', 'btn-reveal', 'btn-pass'].forEach((id) => { $(id).hidden = !show; }); }
 
   function el(tag, props) {

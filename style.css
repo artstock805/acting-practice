@@ -119,7 +119,18 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .transcript li { padding: 6px 0; border-bottom: 1px dashed var(--line); cursor: pointer;
   content-visibility: auto; contain-intrinsic-size: auto 2.4em; }  /* 긴 대본: 화면 밖 줄은 그리지 않음 */
 .transcript li:hover { color: var(--paper); }
-.transcript li.current { color: var(--spot); }
+.transcript li.current { color: var(--paper); background: color-mix(in srgb, var(--spot) 16%, transparent); box-shadow: inset 4px 0 0 var(--spot);
+  padding-left: 12px; border-radius: 6px; font-weight: 600; }
+.transcript li.mine.current { background: color-mix(in srgb, var(--mine) 16%, transparent); box-shadow: inset 4px 0 0 var(--mine); }
+/* 지금 줄이 하는 일: 상대역·지문 읽는 중(🔊) / 내 차례(🎙 깜빡임) — 위 상황판과 같은 순간을 목록에서도 보여 줌 */
+.transcript li.speaking::after { content: ' 🔊'; }
+.transcript li.listening::after { content: ' 🎙'; animation: pulse 1s infinite; display: inline-block; }
+.transcript li.scene-row { color: var(--spot); font-family: var(--serif); font-weight: 700; padding-top: 14px; border-bottom: 1px solid var(--line); }
+.transcript li.dir-row { font-style: italic; font-size: 0.85rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.transcript li.dir-row.current { -webkit-line-clamp: unset; }
+.stage-count { position: absolute; top: 14px; left: 18px; font-size: 0.8rem; font-weight: 800; padding: 3px 10px; border-radius: 999px;
+  background: #0007; color: var(--paper); letter-spacing: 0.02em; }
+.stage-count:empty { display: none; }
 .transcript li b { color: var(--paper); margin-right: 6px; }
 .transcript li.mine b { color: var(--mine); }
 .transcript li .tag { float: right; font-weight: 800; }
