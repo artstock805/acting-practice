@@ -10,7 +10,7 @@
   const V = window.VoiceKit;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v22';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v23';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
   const $ = (id) => document.getElementById(id);
   const PHONE_OS = phoneOS();
@@ -199,7 +199,8 @@
     renderCast();
   }
 
-  // 대사 속 괄호 지문: 화면에는 항상 보이고, '지문도 읽어 주기'를 켰을 때만 해설 목소리로 읽음.
+  // 대사 속 괄호 지문: 옵션과 상관없이 항상 화면에 보이고 해설 목소리로 읽음.
+  // ('지문도 읽어 주기' 옵션은 따로 떨어진 지문 줄만 정함)
   // 채점·말 끝 기다리기는 항상 지문을 뺀 대사로 (지문을 소리 내 읽을 필요 없음)
   const speechOf = (item) => K.spokenText(item.text);
   const shownText = (item) => item.text;  // 대사 속 괄호 지문은 옵션과 상관없이 항상 보여 줌
@@ -214,10 +215,15 @@
   }
 
   async function speakLine(item, token) {
-    const parts = state.opts.directions ? K.splitAsides(withNote(item)) : [{ text: speechOf(item), aside: false }];
-    for (const part of parts) {
+    for (const part of K.splitAsides(withNote(item))) {
       if (token !== runToken || !part.text) continue;
       await S.speak(part.text, part.aside ? voiceCfg(NARRATOR) : voiceCfg(item.character, item));
+    }
+  }
+
+  async function speakAsides(item, token) {
+    for (const part of K.splitAsides(item.text)) {
+      if (token === runToken && part.aside && part.text) await S.speak(part.text, voiceCfg(NARRATOR));
     }
   }
 
@@ -301,7 +307,9 @@
       setRowPhase('');
       return 'next';
     }
-    if (!speechOf(item)) { await sleep(700); return 'next'; }   // 내 대사가 지문뿐이면 말할 게 없음
+    // 내 대사 맨 앞 괄호 지문("(웃으며) …")은 말하기 전에 해설 목소리로 읽어 줌 (중간 괄호는 내가 말하는 중이라 화면으로만)
+    if (item.note) { setRowPhase('speaking'); await S.speak(item.note, voiceCfg(NARRATOR)); setRowPhase(''); if (token !== runToken) return 'stop'; }
+    if (!speechOf(item)) { await speakAsides(item, token); return 'next'; }   // 내 대사가 지문뿐이면 지문만 읽고 넘어감
     if (!S.canListen) return 'wait';
     return listenForLine(item, token);
   }
