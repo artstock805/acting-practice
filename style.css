@@ -38,6 +38,8 @@ main { max-width: 980px; margin: 0 auto; padding: 28px clamp(16px, 4vw, 32px) 64
 .help { color: var(--muted); line-height: 1.7; margin-top: 0; }
 .help b { color: var(--paper); font-weight: 600; }
 .note { color: var(--muted); font-size: 0.85rem; }
+.import-status { color: var(--paper); }
+.import-status.error { color: #ff9b8a; }
 
 textarea { width: 100%; min-height: 360px; background: var(--paper); color: var(--paper-ink); border: 0; border-radius: var(--radius-sm);
   padding: 22px 26px; font-family: var(--serif); font-size: 1.05rem; line-height: 1.8; box-shadow: 0 20px 50px -20px #000; resize: vertical; }

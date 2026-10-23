@@ -107,3 +107,63 @@ test('absurdly long digit runs do not hang or crash', () => {
   assert.strictEqual(K.similarity(huge, huge), 1);
   assert.ok(K.similarity('9'.repeat(12) + '원', '구천억 원') >= 0);
 });
+
+// ---------- '이름 대사' (쌍점 없이 띄어쓰기로 구분하는 희곡 형식) ----------
+test('play format "이름 대사" (no colon) is recognized from names that repeat at line starts', () => {
+  const script = [
+    '#1. 하숙집 / 아침',
+    '수철이 방에서 나온다.',
+    '수철 오늘도 늦었네.',
+    '미영 (웃으며) 매일 늦잖아.',
+    '수철 그래도 오늘은 진짜 중요한 날이야.',
+    '미영 무슨 날인데?',
+    '음악이 흐른다.',
+    '수철 말 못 해.',
+    '미영이 고개를 젓는다.',
+    '미영 또 그 소리.',
+  ].join('\n');
+  const items = K.parseScript(script);
+  const lines = items.filter((i) => i.type === 'line');
+  assert.deepStrictEqual(lines.map((l) => l.character), ['수철', '미영', '수철', '미영', '수철', '미영']);
+  assert.strictEqual(lines[1].note, '웃으며');
+  assert.strictEqual(lines[1].text, '매일 늦잖아.');
+  // '수철이 …', '미영이 …', '음악이 …' 는 지문
+  assert.deepStrictEqual(items.filter((i) => i.type === 'direction').map((d) => d.text), ['수철이 방에서 나온다.', '음악이 흐른다.', '미영이 고개를 젓는다.']);
+});
+
+test('the play format does not hijack normal colon scripts', () => {
+  const items = K.parseScript('민수: 늦었네.\n민수가 들어온다.\n지연: 왜?\n민수: 그냥.\n민수는 웃는다.');
+  assert.deepStrictEqual(items.map((i) => i.type), ['line', 'direction', 'line', 'line', 'direction']);
+});
+
+test('findSpokenNames is shared so file import can keep speaker lines apart', () => {
+  const names = K.findSpokenNames(['상범 안녕.', '상범 네.', '상범 그래.', '상범이 나간다.', '용자 응.']);
+  assert.deepStrictEqual([...names], ['상범']);
+});
+
+test('word fragments and stage words left at line starts by PDF wrapping are not names', () => {
+  const lines = ['상범 안녕.', '상범 네.', '상범 그래.', '용자 응.', '용자 왜?', '용자 몰라.',
+    '는 동안 둘이 걷는다.', '는 동안 불이 꺼진다.', '는 동안 음악.', '이 휴지로 말입니다.', '이 돈을 봐.', '이 사람아.',
+    '과거 무대에 불이 들어온다.', '과거 무대, 불 꺼진다.', '과거 무대 불 꺼지고.'];
+  assert.deepStrictEqual([...K.findSpokenNames(lines)].sort(), ['상범', '용자']);
+});
+
+test('in a "이름 대사" play the cast list is not read as screenplay dialogue', () => {
+  const script = ['등장인물', '김상범 전세환', '김상학 김주옥', '', '상범 안녕.', '용자 응.', '상범 네.', '용자 왜?', '상범 그래.', '용자 몰라.'].join('\n');
+  const chars = K.listCharacters(K.parseScript(script)).map((c) => c.name);
+  assert.deepStrictEqual(chars.sort(), ['상범', '용자']);
+});
+
+// ---------- 리뷰: 희곡식 인식이 다른 형식을 망치지 않아야 함 ----------
+test('screenplay with repeated sentence openers keeps its standalone names', () => {
+  const block = '민수\n아니 그게 무슨 소리야\n영희\n우리 이제 그만하자\n';
+  const items = K.parseScript(block.repeat(4));
+  assert.deepStrictEqual(K.listCharacters(items).map((c) => c.name).sort(), ['민수', '영희']);
+  assert.strictEqual(items.filter((i) => i.type === 'line').length, 8);
+});
+
+test('colon scripts with repeated openers do not gain fake speakers', () => {
+  const script = ['민수: 가자.', '우리 가자 말했잖아', '지연: 싫어.', '그래 알았어 하고 나간다', '민수: 왜?', '우리 이제 끝이야 생각한다',
+    '지연: 몰라.', '그래 그럼 그렇게 해', '민수: 그래.', '우리 둘 다 웃는다', '지연: 응.', '그래 하고 퇴장'].join('\n');
+  assert.deepStrictEqual(K.listCharacters(K.parseScript(script)).map((c) => c.name).sort(), ['민수', '지연']);
+});

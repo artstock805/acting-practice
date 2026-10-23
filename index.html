@@ -35,10 +35,12 @@
       <textarea id="script-input" spellcheck="false" placeholder="S#1. 카페 / 밤&#10;민수: 늦었네.&#10;지연(화가 나서): 미안하다고 했잖아!"></textarea>
       <div class="row">
         <button id="btn-sample" class="ghost">예시 대본 불러오기</button>
-        <label class="ghost file-btn">.txt 파일 열기<input id="file-input" type="file" accept=".txt,text/plain" hidden></label>
+        <label class="ghost file-btn" title="txt · PDF · Word(docx) · 한글(hwp·hwpx) · odt · rtf">📄 대본 파일 열기<input id="file-input" type="file" hidden></label>
         <span class="spacer"></span>
         <button id="btn-parse" class="primary">대본 분석 →</button>
       </div>
+      <p id="import-status" class="note import-status" hidden></p>
+      <p class="note">📄 txt · PDF · Word(docx) · 한글(hwp · hwpx) · odt · rtf 파일을 열 수 있습니다. 파일은 휴대폰·PC 안에서만 읽습니다.</p>
       <p class="note">🔒 대본은 이 브라우저 안에만 저장되고 어디로도 전송되지 않습니다. (음성 인식은 브라우저의 음성 서비스를 사용합니다)</p>
     </section>
 
@@ -122,6 +124,7 @@
 
   <script src="parser.js"></script>
   <script src="sample.js"></script>
+  <script src="fileimport.js"></script>
   <script src="voices.js"></script>
   <script src="speech.js"></script>
   <script src="recorder.js"></script>

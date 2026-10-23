@@ -5,6 +5,7 @@
   const S = window.Speech;
   const R = window.Recorder;
   const C = window.CloudSTT;
+  const FI = window.FileImport;
   const STORE_KEY = 'acting-practice-v1';
   const V = window.VoiceKit;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
@@ -557,14 +558,36 @@
     return node;
   }
 
+  // ---------- 대본 파일 열기 (txt·PDF·docx·hwp…) ----------
+  async function importScriptFile(file) {
+    if (file.size > FI.MAX_FILE_BYTES) { setImportStatus(`⚠ 파일이 너무 큽니다(${Math.round(FI.MAX_FILE_BYTES / 1024 / 1024)}MB까지).`, true); return; }
+    setImportStatus(`📄 ${file.name} 읽는 중…`);
+    try {
+      const { text } = await FI.extractScriptText({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+      $('script-input').value = text;
+      setImportStatus(`✅ ${file.name}에서 ${text.split('\n').length}줄을 불러왔어요. 내용을 확인하고 '대본 분석'을 누르세요.`);
+    } catch (err) {
+      const message = err instanceof FI.ImportError ? err.message : `파일을 읽지 못했습니다. (${err.message})`;
+      setImportStatus('⚠ ' + message, true);
+    }
+  }
+
+  function setImportStatus(text, isError) {
+    const box = $('import-status');
+    box.hidden = !text;
+    box.textContent = text;
+    box.classList.toggle('error', !!isError);
+  }
+
   // ---------- 이벤트 ----------
   function bindEvents() {
     document.querySelectorAll('.tab').forEach((t) => { t.onclick = () => (t.dataset.view === 'practice' ? goPractice() : showView(t.dataset.view)); });
     $('btn-sample').onclick = () => { $('script-input').value = window.SAMPLE_SCRIPT; };
-    $('file-input').onchange = async (e) => {
+    $('file-input').accept = FI.ACCEPT;
+    $('file-input').onchange = (e) => {
       const file = e.target.files[0];
-      if (!file) return;
-      try { $('script-input').value = await file.text(); } catch (err) { alert('파일을 읽지 못했습니다: ' + err.message); }
+      e.target.value = '';  // 같은 파일을 다시 골라도 다시 읽도록
+      if (file) importScriptFile(file);
     };
     $('btn-parse').onclick = parseAndGo;
     $('btn-to-practice').onclick = goPractice;

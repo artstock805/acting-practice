@@ -5,10 +5,11 @@ WORKDIR /app
 ENV NODE_ENV=production STATIC_ROOT=/app/public
 COPY server.js ./
 COPY index.html style.css manifest.webmanifest sw.js \
-     parser.js sample.js voices.js speech.js recorder.js audiokit.js cloudstt.js app.js \
+     parser.js sample.js fileimport.js voices.js speech.js recorder.js audiokit.js cloudstt.js app.js \
      public/
 COPY assets/*.png assets/*.ico public/assets/
 COPY vendor/qrcode.js public/vendor/
+COPY vendor/pdfjs public/vendor/pdfjs
 
 USER node
 EXPOSE 8080
