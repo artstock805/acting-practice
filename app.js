@@ -583,11 +583,13 @@
   function bindEvents() {
     document.querySelectorAll('.tab').forEach((t) => { t.onclick = () => (t.dataset.view === 'practice' ? goPractice() : showView(t.dataset.view)); });
     $('btn-sample').onclick = () => { $('script-input').value = window.SAMPLE_SCRIPT; };
-    $('file-input').accept = FI.ACCEPT;
+    // 파일 종류 제한(accept)은 두지 않음: 안드로이드는 .hwp 같은 확장자의 형식을 몰라, 골라도 앱에 파일을 넘기지 않음.
+    // 어떤 파일이든 받아서 fileimport.js가 형식을 직접 판별하고, 대본이 아니면 안내 문구를 보여 줌
     $('file-input').onchange = (e) => {
-      const file = e.target.files[0];
+      const file = e.target.files && e.target.files[0];
       e.target.value = '';  // 같은 파일을 다시 골라도 다시 읽도록
       if (file) importScriptFile(file);
+      else setImportStatus('⚠ 고른 파일을 받지 못했습니다. 파일 앱(내 파일)에서 대본 파일을 다시 골라 주세요.', true);
     };
     $('btn-parse').onclick = parseAndGo;
     $('btn-to-practice').onclick = goPractice;
