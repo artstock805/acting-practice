@@ -187,3 +187,57 @@ test('pdf.js module and character maps are served with the right types', async (
     assert.strictEqual(cmap.headers.get('content-type'), 'application/octet-stream');
   });
 });
+
+// ---------- 휴대폰 로딩 속도: 압축·재검증 ----------
+const http = require('node:http');
+const zlib = require('node:zlib');
+const fsSync = require('node:fs');
+
+function rawGet(base, pathname, headers = {}) {
+  return new Promise((resolve, reject) => {
+    http.get(base + pathname, { headers }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+    }).on('error', reject);
+  });
+}
+
+test('text files are compressed for browsers that accept it, images are not', async () => {
+  await withServer({ transcribe: async () => '' }, async (base) => {
+    const original = fsSync.readFileSync(require.resolve('./app.js'));
+    const gz = await rawGet(base, '/app.js', { 'Accept-Encoding': 'gzip' });
+    assert.strictEqual(gz.headers['content-encoding'], 'gzip');
+    assert.match(gz.headers.vary, /Accept-Encoding/);
+    assert.ok(zlib.gunzipSync(gz.body).equals(original));
+    assert.ok(gz.body.length < original.length / 2);
+    const br = await rawGet(base, '/app.js', { 'Accept-Encoding': 'gzip, deflate, br' });
+    assert.strictEqual(br.headers['content-encoding'], 'br');
+    assert.ok(zlib.brotliDecompressSync(br.body).equals(original));
+    const plain = await rawGet(base, '/app.js');
+    assert.strictEqual(plain.headers['content-encoding'], undefined);
+    assert.ok(plain.body.equals(original));
+    const png = await rawGet(base, '/assets/icon-192.png', { 'Accept-Encoding': 'gzip, br' });
+    assert.strictEqual(png.headers['content-encoding'], undefined);
+  });
+});
+
+test('unchanged files answer 304 to a matching ETag', async () => {
+  await withServer({ transcribe: async () => '' }, async (base) => {
+    const first = await rawGet(base, '/style.css', { 'Accept-Encoding': 'gzip' });
+    assert.ok(first.headers.etag);
+    const again = await rawGet(base, '/style.css', { 'Accept-Encoding': 'gzip', 'If-None-Match': first.headers.etag });
+    assert.strictEqual(again.status, 304);
+    assert.strictEqual(again.body.length, 0);
+    assert.strictEqual(again.headers['cache-control'], 'no-cache');
+    const stale = await rawGet(base, '/style.css', { 'If-None-Match': '"old"' });
+    assert.strictEqual(stale.status, 200);
+  });
+});
+
+test('weak or listed ETags from proxies still get 304', async () => {
+  await withServer({ transcribe: async () => '' }, async (base) => {
+    const { etag } = (await rawGet(base, '/app.js')).headers;
+    assert.strictEqual((await rawGet(base, '/app.js', { 'If-None-Match': `"x", W/${etag}` })).status, 304);
+  });
+});

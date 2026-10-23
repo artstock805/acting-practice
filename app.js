@@ -10,7 +10,7 @@
   const V = window.VoiceKit;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v17';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v18';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
   const $ = (id) => document.getElementById(id);
   const PHONE_OS = phoneOS();
@@ -424,7 +424,7 @@
     if (takes[index]) URL.revokeObjectURL(takes[index]);
     takes = { ...takes, [index]: URL.createObjectURL(blob) };
     $('btn-my-take').hidden = false;
-    renderTranscript();
+    refreshTranscriptRow(index);
   }
 
   // 이 장면을 상대역 음성 + 내 녹음으로 이어서 재생 (내 녹음이 없으면 대사만 표시하고 잠깐 쉼)
@@ -483,7 +483,7 @@
     return '음성 인식 오류: ' + code;
   }
 
-  function recordResult(index, score) { update({ results: { ...state.results, [index]: score } }); renderTranscript(); }
+  function recordResult(index, score) { update({ results: { ...state.results, [index]: score } }); refreshTranscriptRow(index); }
 
   function finish() {
     const scores = Object.values(state.results);
@@ -514,9 +514,7 @@
     $('btn-my-take').hidden = !takes[state.index];
     updateStage(item);
     $('progress-bar').style.width = ((state.index + 1) / state.items.length) * 100 + '%';
-    document.querySelectorAll('.transcript li').forEach((li) => li.classList.toggle('current', +li.dataset.index === state.index));
-    const cur = document.querySelector('.transcript li.current');
-    if (cur) cur.scrollIntoView({ block: 'nearest' });
+    markCurrentRow();
     if (item.type !== 'line') return;
     const mine = state.cast[item.character] && state.cast[item.character].mine;
     const mode = state.opts.mode;
@@ -571,29 +569,66 @@
     img.src = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt) + '?width=960&height=420&nologo=true';
   }
 
+  // 연습 목록: 화면 전환 때 한 번만 전체를 만들고, 채점·녹음 뒤에는 그 줄만 바꿈 (긴 대본에서 휴대폰이 멈칫하지 않게)
+  let transcriptRows = new Map();
+
   function renderTranscript() {
-    const list = $('transcript');
-    list.textContent = '';
+    const rows = new Map();
+    const frag = document.createDocumentFragment();
     state.items.forEach((item, index) => {
       if (item.type !== 'line') return;
-      const mine = state.cast[item.character] && state.cast[item.character].mine;
-      const li = el('li', { className: mine ? 'mine' : '' });
-      li.dataset.index = index;
-      li.append(el('b', { textContent: item.character }), shownText(item));
-      if (takes[index]) {
-        const play = el('button', { className: 'take', textContent: '🎧', title: '내 녹음 듣기' });
-        play.onclick = (e) => { e.stopPropagation(); R.play(takes[index]); };
-        li.append(play);
-      }
-      const score = state.results[index];
-      if (score !== undefined) {
-        const ok = score >= state.opts.threshold / 100;
-        li.append(el('span', { className: 'tag', textContent: Math.round(score * 100) + '%', style: `color: var(--${ok ? 'ok' : 'bad'})` }));
-      }
-      li.classList.toggle('current', index === state.index);
-      li.onclick = () => jumpTo(index, false);
-      list.append(li);
+      const li = transcriptRow(item, index);
+      rows.set(index, li);
+      frag.append(li);
     });
+    transcriptRows = rows;
+    $('transcript').replaceChildren(frag);
+  }
+
+  function refreshTranscriptRow(index) {
+    const old = transcriptRows.get(index);
+    if (!old) return;  // 목록에 없는 줄(지문·장면 제목)은 바꿀 것이 없음
+    const li = transcriptRow(state.items[index], index);
+    transcriptRows = new Map(transcriptRows).set(index, li);
+    old.replaceWith(li);
+  }
+
+  function markCurrentRow() {
+    const prev = $('transcript').querySelector('li.current');
+    if (prev) prev.classList.remove('current');
+    const cur = transcriptRows.get(state.index);
+    if (!cur) return;
+    cur.classList.add('current');
+    scrollWithinList(cur);
+  }
+
+  // 지금 줄이 보이도록 목록 상자 안에서만 스크롤함. scrollIntoView는 화면 전체도 움직여서,
+  // 목록이 길게 펼쳐지는 휴대폰에서는 대사 카드가 화면 밖으로 밀려나고 매번 긴 페이지를 다시 그렸음
+  function scrollWithinList(row) {
+    const list = $('transcript');
+    if (list.scrollHeight <= list.clientHeight) return;
+    const offset = row.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+    list.scrollTop = offset - (list.clientHeight - row.offsetHeight) / 2;
+  }
+
+  function transcriptRow(item, index) {
+    const mine = state.cast[item.character] && state.cast[item.character].mine;
+    const li = el('li', { className: mine ? 'mine' : '' });
+    li.dataset.index = index;
+    li.append(el('b', { textContent: item.character }), shownText(item));
+    if (takes[index]) {
+      const play = el('button', { className: 'take', textContent: '🎧', title: '내 녹음 듣기' });
+      play.onclick = (e) => { e.stopPropagation(); R.play(takes[index]); };
+      li.append(play);
+    }
+    const score = state.results[index];
+    if (score !== undefined) {
+      const ok = score >= state.opts.threshold / 100;
+      li.append(el('span', { className: 'tag', textContent: Math.round(score * 100) + '%', style: `color: var(--${ok ? 'ok' : 'bad'})` }));
+    }
+    li.classList.toggle('current', index === state.index);
+    li.onclick = () => jumpTo(index, false);
+    return li;
   }
 
   function setMic(text, listening) { $('mic-status').textContent = text; $('mic-status').classList.toggle('listening', !!listening); }
@@ -671,7 +706,7 @@
     $('btn-parse').onclick = parseAndGo;
     $('btn-to-practice').onclick = goPractice;
     $('btn-auto-voices').onclick = autoAssignVoices;
-    $('btn-phone').onclick = () => { showPhoneQr(); $('phone-dialog').showModal(); };
+    $('btn-phone').onclick = () => { $('phone-dialog').showModal(); loadQrLibrary().then(showPhoneQr, () => { /* 못 불러오면 기본 QR 그림을 그대로 둠 */ }); };
     $('btn-play').onclick = () => {
       S.unlock();  // iOS는 첫 음성을 사용자 터치 안에서 내야 이후 낭독이 허용됨
       if (state.index >= state.items.length) { update({ index: 0, results: {} }); renderTranscript(); return play(); }
@@ -701,6 +736,19 @@
   // PC 로컬 실행(localhost·파일)은 휴대폰이 접속할 수 없으니 기본 이미지(Cloud Run 주소)를 그대로 둠
   const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]', ''];
   let phoneQrUrl = null;
+  let qrLibrary = null;
+
+  // QR 라이브러리는 '휴대폰에서 열기'를 누를 때만 받음 (앱 첫 화면을 빨리 띄우려고)
+  function loadQrLibrary() {
+    if (typeof window.qrcode === 'function') return Promise.resolve();
+    qrLibrary = qrLibrary || new Promise((resolve, reject) => {
+      const script = el('script', { src: 'vendor/qrcode.js' });
+      script.onload = resolve;
+      script.onerror = () => { qrLibrary = null; reject(new Error('qrcode.js')); };
+      document.head.append(script);
+    });
+    return qrLibrary;
+  }
 
   function showPhoneQr() {
     if (typeof window.qrcode !== 'function' || LOCAL_HOSTS.includes(location.hostname)) return;
