@@ -13,6 +13,8 @@
     joy: { pitch: 1.15, rate: 1.05, volume: 1 }, whisper: { pitch: 1, rate: 0.85, volume: 0.45 }, fear: { pitch: 1.1, rate: 1.1, volume: 0.8 } };
 
   const synth = root.speechSynthesis;
+  const CLOUD_MIN_RATE = 0.7;   // voicecatalog.js의 허용 범위와 같게
+  const CLOUD_MAX_RATE = 1.4;
   const Recognition = root.SpeechRecognition || root.webkitSpeechRecognition;
 
   function getKoreanVoices() {
@@ -30,8 +32,33 @@
     synth.addEventListener('voiceschanged', () => cb(getKoreanVoices()));
   }
 
-  // cfg: { voiceURI, pitch, rateScale(인물 속도), rate(전체 속도), emotionKey }
+  // cfg: { cloudVoice(Google 목소리), voiceURI, pitch, rateScale(인물 속도), rate(전체 속도), emotionKey }
+  // Google 목소리가 정해져 있으면 서버 합성으로 읽고, 실패하면 이 기기의 기본 음성으로 대신 읽음
+  let onCloudError = () => {};
+  const usesCloud = (cfg, text) => !!(cfg.cloudVoice && root.CloudTTS && root.CloudTTS.available && text);
+  function cloudOptions(cfg) {
+    const e = EMOTION_TUNE[cfg.emotionKey] || { rate: 1 };
+    const rate = Math.round(clamp((cfg.rateScale || 1) * e.rate * (cfg.rate || 1), CLOUD_MIN_RATE, CLOUD_MAX_RATE) * 100) / 100;
+    return { voice: cfg.cloudVoice, rate };
+  }
+
+  // 곧 읽을 대사를 미리 받아 둠 (Google 목소리일 때만 의미 있음)
+  function prefetch(text, cfg) {
+    if (usesCloud(cfg, text)) root.CloudTTS.prefetch(text, cloudOptions(cfg));
+  }
+
   function speak(text, cfg) {
+    if (usesCloud(cfg, text)) {
+      if (synth) synth.cancel();
+      return root.CloudTTS.speak(text, cloudOptions(cfg)).catch((err) => {
+        onCloudError(err);
+        return deviceSpeak(text, cfg);
+      });
+    }
+    return deviceSpeak(text, cfg);
+  }
+
+  function deviceSpeak(text, cfg) {
     return new Promise((resolve) => {
       if (!synth || !text) return resolve();
       synth.cancel();
@@ -51,6 +78,7 @@
 
   let unlocked = false;
   function unlock() {
+    if (root.CloudTTS) root.CloudTTS.unlock();
     if (!synth || unlocked) return;
     unlocked = true;
     const u = new SpeechSynthesisUtterance(' ');
@@ -58,7 +86,10 @@
     synth.speak(u);
   }
 
-  function stopSpeaking() { if (synth) synth.cancel(); }
+  function stopSpeaking() {
+    if (root.CloudTTS) root.CloudTTS.stop();
+    if (synth) synth.cancel();
+  }
 
   // onInterim(text) 실시간 표시용, shouldStopEarly(text) 충분히 맞으면 바로 종료
   // silenceMs: 말이 끝났다고 볼 침묵 길이 (대사가 길거나 '...'이 있으면 더 길게 넘겨 받음)
@@ -146,5 +177,5 @@
 
   function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 
-  root.Speech = { onVoicesReady, getKoreanVoices, speak, stopSpeaking, unlock, listen, canListen: !!Recognition, canSpeak: !!synth };
+  root.Speech = { onVoicesReady, getKoreanVoices, speak, prefetch, stopSpeaking, unlock, listen, setCloudErrorHandler: (fn) => { onCloudError = fn; }, canListen: !!Recognition, canSpeak: !!synth };
 })(window);

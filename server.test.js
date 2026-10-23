@@ -241,3 +241,10 @@ test('weak or listed ETags from proxies still get 304', async () => {
     assert.strictEqual((await rawGet(base, '/app.js', { 'If-None-Match': `"x", W/${etag}` })).status, 304);
   });
 });
+
+test('IPv6 clients are grouped by their /64 so rotating addresses does not dodge rate limits', () => {
+  const req = (fwd) => ({ headers: { 'x-forwarded-for': fwd }, socket: { remoteAddress: '10.0.0.1' } });
+  assert.strictEqual(clientIp(req('2001:db8:1:2:aaaa::1')), clientIp(req('2001:db8:1:2:bbbb::9')));
+  assert.notStrictEqual(clientIp(req('2001:db8:1:2::1')), clientIp(req('2001:db8:1:3::1')));
+  assert.strictEqual(clientIp(req('203.0.113.7')), '203.0.113.7');
+});

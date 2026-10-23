@@ -6,6 +6,8 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
+const { createTtsHandler, createGoogleSynthesizer, createDailyBudget } = require('./tts.js');
+const { createAnalyzeHandler, createClaudeAnalyzer } = require('./analyze.js');
 
 const ROOT = path.resolve(process.env.STATIC_ROOT || __dirname);
 const MAX_AUDIO_BYTES = 1024 * 1024;   // 16kHz 모노 16bit 기준 약 32초
@@ -186,7 +188,9 @@ function readBody(req, limit) {
 function clientIp(req) {
   const fwd = req.headers['x-forwarded-for'];
   const parts = fwd ? String(fwd).split(',').map((s) => s.trim()).filter(Boolean) : [];
-  return parts.length ? parts[parts.length - 1] : req.socket.remoteAddress || '';
+  const ip = parts.length ? parts[parts.length - 1] : req.socket.remoteAddress || '';
+  // IPv6는 한 집·한 기기에 /64 전체가 주어지므로 앞 4칸으로 묶어 셈 (주소를 바꿔 가며 제한을 피하지 못하게)
+  return ip.includes(':') && !ip.startsWith('::ffff:') ? ip.split(':').slice(0, 4).join(':') + '::/64' : ip;
 }
 
 const TOO_MANY = { error: '요청이 너무 많습니다. 잠시 뒤 다시 해 주세요.' };
@@ -269,21 +273,35 @@ function compressed(entry, encoding) {
   return entry[encoding];
 }
 
-function route(handleStt, req, res) {
+function route({ handleStt, handleTts, handleAnalyze }, req, res) {
   let pathname;
   try { pathname = new URL(req.url, 'http://x').pathname; } catch { return send(res, 400, ''); }  // 예: 'GET //'
   if (pathname === '/api/stt' && req.method === 'POST') return handleStt(req, res);
   if (pathname === '/api/stt/health' && req.method === 'GET') return sendJson(res, 200, { ok: true });
+  if (pathname === '/api/tts' && req.method === 'POST') return handleTts(req, res);
+  if (pathname === '/api/analyze' && req.method === 'POST') return handleAnalyze(req, res);
   if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);
   return send(res, 405, '');
 }
 
 function createServer(opts) {
   const handleStt = createSttHandler(opts);
+  const handleTts = createTtsHandler({
+    synthesize: (opts && opts.synthesize) || createGoogleSynthesizer({ getAuth, timeoutMs: UPSTREAM_TIMEOUT_MS }),
+    dailyChars: opts && opts.ttsDailyChars,
+    dailyCharsPerClient: opts && opts.ttsDailyCharsPerClient,
+    readBody, sendJson, send, clientIp, createRateLimiter,
+  });
+  const handleAnalyze = createAnalyzeHandler({
+    analyze: opts && 'analyze' in opts ? opts.analyze : createClaudeAnalyzer(),
+    daily: opts && opts.analyzeDaily,
+    maxInFlight: opts && opts.analyzeMaxInFlight,
+    readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
+  });
   const server = http.createServer((req, res) => {
     // 요청 하나의 예상 못 한 오류가 프로세스 전체를 멈추지 않게 여기서 받음
     Promise.resolve()
-      .then(() => route(handleStt, req, res))
+      .then(() => route({ handleStt, handleTts, handleAnalyze }, req, res))
       .catch((err) => {
         console.error('[server]', err && err.stack ? err.stack : err);
         if (!res.headersSent) send(res, 500, '');

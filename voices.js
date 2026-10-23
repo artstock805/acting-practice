@@ -23,7 +23,7 @@
     const preset = PRESETS[cfg.persona];
     const pitch = typeof cfg.pitch === 'number' ? cfg.pitch : preset ? preset.pitch : PITCH_STEPS[(cfg.slot || 0) % PITCH_STEPS.length];
     const rateScale = typeof cfg.rateScale === 'number' ? cfg.rateScale : preset ? preset.rateScale : 1;
-    return { voiceURI: cfg.voiceURI || '', pitch, rateScale };
+    return { cloudVoice: cfg.cloudVoice || '', voiceURI: cfg.voiceURI || '', pitch, rateScale };
   }
 
   // 상대 배역들에게 음성을 돌려 가며 주고, 같은 음성을 쓰게 되면 높낮이를 다르게 함
@@ -38,12 +38,18 @@
     return result;
   }
 
+  // Google 목소리는 높낮이를 못 바꾸므로 목소리가 같으면 같은 것으로 봄
+  function sameVoice(a, b) {
+    if (a.cloudVoice || b.cloudVoice) return a.cloudVoice === b.cloudVoice;
+    return a.voiceURI === b.voiceURI && Math.abs(a.pitch - b.pitch) < CLASH_PITCH;
+  }
+
   // 상대 배역끼리 목소리가 거의 같은 인물 이름 목록
   function findVoiceClashes(cast) {
     const others = Object.keys(cast).filter((n) => !cast[n].mine).map((n) => ({ name: n, v: resolveVoice(cast[n]) }));
     const clashing = new Set();
     others.forEach((a, i) => others.slice(i + 1).forEach((b) => {
-      if (a.v.voiceURI === b.v.voiceURI && Math.abs(a.v.pitch - b.v.pitch) < CLASH_PITCH && Math.abs(a.v.rateScale - b.v.rateScale) < CLASH_RATE) {
+      if (sameVoice(a.v, b.v) && Math.abs(a.v.rateScale - b.v.rateScale) < CLASH_RATE) {
         clashing.add(a.name);
         clashing.add(b.name);
       }

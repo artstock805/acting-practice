@@ -34,6 +34,8 @@ steps:
       - --allow-unauthenticated
       - --memory=256Mi
       - --max-instances=3
+      - --concurrency=20   # 큰 대본 분석·음성 합성이 몰려도 256Mi 메모리를 넘지 않게
+      - --set-secrets=ANTHROPIC_API_KEY=anthropic-api-key:latest   # AI 배역 분석용 Claude 키 (Secret Manager)
       - --quiet
 
 serviceAccount: projects/${PROJECT_ID}/serviceAccounts/acting-practice-build@${PROJECT_ID}.iam.gserviceaccount.com
