@@ -76,6 +76,7 @@
     let settled = false;
     let lastHeardAt = 0;
     let restarts = 0;
+    let carried = '';   // 다시 시작하기 직전에 확정으로 옮긴 말 (새 세션이 같은 말을 다시 보내면 겹치지 않게 뺌)
     let resolveFn;
     let rejectFn;
     // 진단용: 인식 이벤트가 몇 초에 왔는지 기록 (휴대폰에서 '소리가 안 들림' 원인 찾기)
@@ -85,6 +86,19 @@
     ['start', 'audiostart', 'soundstart', 'speechstart', 'speechend', 'soundend', 'audioend'].forEach((name) => {
       rec.addEventListener(name, () => mark(name));
     });
+
+    // 일부 안드로이드 크롬은 다시 시작한 세션에서 직전 말을 처음부터 다시 보냄 → 그 앞부분을 빼고 새 말만 붙임
+    const dropCarried = (text) => {
+      const t = String(text || '').trim();
+      if (!carried) return t;
+      const squash = (s) => s.replace(/\s+/g, '');
+      if (!squash(t).startsWith(squash(carried))) return t;
+      let i = 0;
+      let matched = 0;
+      const target = squash(carried).length;
+      while (i < t.length && matched < target) { if (!/\s/.test(t[i])) matched++; i++; }
+      return t.slice(i).trim();
+    };
 
     const finish = () => { if (!settled) { settled = true; clearTimeout(silenceTimer); clearTimeout(noSpeechTimer); try { rec.stop(); } catch (_) { /* 이미 종료됨 */ } resolveFn((finalText + ' ' + interim).trim()); } };
     const noSpeechTimer = setTimeout(finish, NO_SPEECH_MS);
@@ -96,8 +110,9 @@
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
         if (!r.isFinal) { interim += r[0].transcript; continue; }
-        const alternatives = Array.from(r, (a) => a.transcript);
+        const alternatives = Array.from(r, (a) => dropCarried(a.transcript));
         finalText += ' ' + ((pickAlternative && pickAlternative(finalText.trim(), alternatives)) || alternatives[0]);
+        carried = '';
       }
       lastHeardAt = Date.now();
       const current = (finalText + ' ' + interim).trim();
@@ -120,7 +135,7 @@
       const heard = (finalText + interim).trim();
       if (!settled && heard && Date.now() - lastHeardAt < silenceMs && restarts < MAX_RESTARTS) {
         restarts++;
-        if (interim) { finalText += ' ' + interim; interim = ''; }
+        if (interim) { finalText += ' ' + interim; carried = interim.trim(); interim = ''; }
         try { rec.start(); mark('restart'); return; } catch (_) { /* 다시 시작 못 하면 지금까지로 채점 */ }
       }
       finish();

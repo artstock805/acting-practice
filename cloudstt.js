@@ -131,7 +131,8 @@
     const wav = A.encodeWav(samples, TARGET_RATE);
     diag.uploadKB = Math.round(wav.byteLength / 1024);
     const headers = { 'Content-Type': 'audio/wav' };
-    if (hint) headers['X-Line-Hint'] = encodeURIComponent(hint.slice(0, MAX_HINT_CHARS));
+    // 글자 단위로 자름: 문자열 slice는 이모지(서로게이트 쌍)를 반으로 잘라 encodeURIComponent가 실패할 수 있음
+    if (hint) headers['X-Line-Hint'] = encodeURIComponent(Array.from(hint).slice(0, MAX_HINT_CHARS).join(''));
     const res = await fetch('api/stt', { method: 'POST', headers, body: wav, signal });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(body.error || 'server ' + res.status), { server: true, status: res.status });

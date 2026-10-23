@@ -130,6 +130,10 @@
 
   function sinoNumber(n) {
     if (n === 0) return '영';
+    if (n >= 100000000) {
+      const eok = Math.floor(n / 100000000);
+      return sinoNumber(eok) + '억' + (n % 100000000 ? sinoNumber(n % 100000000) : '');
+    }
     if (n >= 10000) {
       const man = Math.floor(n / 10000);
       return (man === 1 ? '' : sinoNumber(man)) + '만' + (n % 10000 ? sinoNumber(n % 10000) : '');
@@ -148,10 +152,12 @@
   }
 
   // 정규화된 문장의 숫자를 한자어·고유어 읽기로 바꾼 후보들 (숫자가 없으면 원문 하나)
+  // 숫자는 12자리(천억)까지 한 덩어리로 읽음. 그보다 긴 숫자열은 끊어 읽어 무한 재귀·Infinity를 막음
+  const DIGIT_RUN = /\d{1,12}/g;
   function readings(s) {
     if (!/\d/.test(s)) return [s];
-    const sino = s.replace(/\d+/g, (d) => sinoNumber(Number(d)));
-    const native = s.replace(/\d+/g, (d) => (Number(d) >= 1 && Number(d) <= NATIVE_MAX ? nativeNumber(Number(d)) : sinoNumber(Number(d))));
+    const sino = s.replace(DIGIT_RUN, (d) => sinoNumber(Number(d)));
+    const native = s.replace(DIGIT_RUN, (d) => (Number(d) >= 1 && Number(d) <= NATIVE_MAX ? nativeNumber(Number(d)) : sinoNumber(Number(d))));
     return sino === native ? [sino] : [sino, native];
   }
 
@@ -161,9 +167,19 @@
     return best;
   }
 
+  function syllableSimilarity(a, b) {
+    if (!a.length && !b.length) return 1;
+    return 1 - levenshtein(a, b) / Math.max(a.length, b.length);
+  }
+
+  // '응'·'네'처럼 아주 짧은 대사는 자모 부분 점수를 주면 '음'·'내'도 통과해 버림 → 음절이 정확해야 함
+  const SHORT_LINE_SYLLABLES = 2;
+
   // 0~1, 띄어쓰기·문장부호를 무시하고 자모 단위로 비교한 일치율. 숫자는 읽는 방식 차이를 무시
   function similarity(expected, spoken) {
-    return bestOf(readings(normalize(expected)), readings(normalize(spoken)), jamoSimilarity);
+    const exp = normalize(expected);
+    const score = Array.from(exp).length <= SHORT_LINE_SYLLABLES ? syllableSimilarity : jamoSimilarity;
+    return bestOf(readings(exp), readings(normalize(spoken)), score);
   }
 
   const WORD_MATCH = 0.8;  // 단어 표시에서 '맞음'으로 볼 자모 일치율 (빨라↔발라 = 0.8)

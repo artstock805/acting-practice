@@ -94,3 +94,16 @@ test('silenceForLine waits longer for long lines and lines with pauses', () => {
   assert.ok(long > short && long <= 3200);
   assert.ok(pause > K.silenceForLine('그건 미안해.'));
 });
+
+test('very short lines need the exact sound (no partial credit for 1~2 syllables)', () => {
+  assert.strictEqual(K.similarity('응.', '음'), 0);
+  assert.strictEqual(K.similarity('네.', '내'), 0);
+  assert.strictEqual(K.similarity('응.', '응'), 1);
+  assert.ok(K.similarity('안녕.', '아니') < 0.5);
+});
+
+test('absurdly long digit runs do not hang or crash', () => {
+  const huge = '1'.repeat(400);
+  assert.strictEqual(K.similarity(huge, huge), 1);
+  assert.ok(K.similarity('9'.repeat(12) + '원', '구천억 원') >= 0);
+});
