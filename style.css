@@ -124,6 +124,14 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .transcript li.mine b { color: var(--mine); }
 .transcript li .tag { float: right; font-weight: 800; }
 
+/* 연습 화면: 무대·지금 대사·조작부는 위에 고정하고, 아래 대본 목록만 따로 스크롤 */
+body.practice-mode { height: 100vh; height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+body.practice-mode main { flex: 1; min-height: 0; width: 100%; display: flex; flex-direction: column; overflow-y: auto; padding-bottom: 16px; }
+body.practice-mode #view-practice.active { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+body.practice-mode .stage { flex: none; max-height: 26vh; }
+body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: none; margin-top: 12px; padding-right: 4px; overscroll-behavior: contain;
+  border-top: 1px solid var(--line); }
+
 .install { margin-left: auto; padding: 6px 14px; font-size: 0.9rem; }
 .install + .install { margin-left: 0; }
 
@@ -176,6 +184,11 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
   .controls button { flex: 1 1 auto; padding: 10px 12px; }
   #btn-play { flex: 2 1 auto; }
   .transcript { max-height: none; }
+  /* 휴대폰 연습 화면: 무대를 낮게 줄여 대본 목록 자리를 확보, 아래 고정 조작부만큼 비움 */
+  body.practice-mode main { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+  body.practice-mode .stage { aspect-ratio: auto; height: clamp(88px, 14vh, 140px); }
+  body.practice-mode .stage-emoji { font-size: 1.8rem; top: 10px; right: 14px; }
+  body.practice-mode .line-card { min-height: 0; }
 }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
