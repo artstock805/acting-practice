@@ -101,7 +101,7 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .note-chip { font-weight: 400; font-size: 0.85rem; padding: 2px 10px; border-radius: 999px; background: #0000000f; }
 .note-chip:empty { display: none; }
 .line-text { font-family: var(--serif); font-size: clamp(1.2rem, 2.6vw, 1.6rem); line-height: 1.6; margin-top: 8px; }
-.line-text.is-hidden { color: #0000; text-shadow: 0 0 12px #0006; user-select: none; }
+.line-text.is-hidden .masked { color: #0000; text-shadow: 0 0 12px #0006; user-select: none; }
 .line-diff { margin-top: 10px; font-family: var(--serif); }
 .line-diff .w { padding: 0 2px; border-radius: 3px; }
 .line-diff .w.ok { color: var(--ok); }

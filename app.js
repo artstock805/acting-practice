@@ -10,7 +10,7 @@
   const V = window.VoiceKit;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v21';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v22';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
   const $ = (id) => document.getElementById(id);
   const PHONE_OS = phoneOS();
@@ -548,9 +548,17 @@
     $('line-note').textContent = note || '';
     const emotion = K.detectEmotion(note);
     $('line-note').style.background = emotion ? emotion.color + '33' : '';
-    $('line-text').textContent = text;
+    $('line-text').replaceChildren(...(hidden ? maskedParts(text) : [text]));
     $('line-text').classList.toggle('is-hidden', !!hidden);
     $('line-card').classList.toggle('is-mine', !!mine);
+  }
+
+  // 숨기기(암기 테스트): 외울 말만 가리고, 대사 속 (괄호 지문)은 그대로 보여 줌
+  function maskedParts(text) {
+    return K.splitAsides(text).flatMap((p, i) => [
+      ...(i ? [' '] : []),
+      p.aside ? el('span', { className: 'aside', textContent: `(${p.text})` }) : el('span', { className: 'masked', textContent: p.text }),
+    ]);
   }
 
   function revealLine(item) { $('line-text').textContent = shownText(item); $('line-text').classList.remove('is-hidden'); }
