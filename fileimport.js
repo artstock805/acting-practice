@@ -526,10 +526,7 @@
     return { format: result.format, text };
   }
 
-  // 파일 선택 창에서 고를 수 있게 할 확장자
-  const ACCEPT = '.txt,.text,.md,.srt,.vtt,.csv,.rtf,.pdf,.docx,.hwp,.hwpx,.odt,text/plain,application/pdf';
-
-  const api = { MAX_FILE_BYTES, MAX_INFLATED_BYTES, ACCEPT, ImportError, extractScriptText, decodeText, xmlToText, readZip, readCfb, rtfText, pdfPageText, pdfPageRows, joinPdfRows, tidy };
+  const api = { MAX_FILE_BYTES, MAX_INFLATED_BYTES, ImportError, extractScriptText, decodeText, xmlToText, readZip, readCfb, rtfText, pdfPageText, pdfPageRows, joinPdfRows, tidy };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.FileImport = api;
 })(this);
