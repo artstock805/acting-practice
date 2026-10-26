@@ -8,12 +8,13 @@
     { name: 'Project Gutenberg 희곡 목록', lang: '영어', url: 'https://www.gutenberg.org/ebooks/bookshelf/642?sort_order=downloads' },
     { name: '위키문헌 희곡 목록', lang: '한국어', url: 'https://ko.wikisource.org/wiki/분류:희곡' },
   ];
+  // 공유마당(한국저작권위원회): 어문 저작물에서 '희곡'으로 검색한 결과. 사이트가 자동 내려받기를 막아서 파일은 사람이 직접 받음
+  const GONGU_SEARCH = { name: '공유마당 희곡 검색', lang: '한국어', url: 'https://gongu.copyright.or.kr/gongu/wrt/wrtCl/listWrtText.do?menuNo=200019&searchKeyword=%ED%9D%AC%EA%B3%A1' };
   // 파일로 받아 '📄 대본 파일 열기'로 넣는 곳
   const FILE_SITES = [
-    { name: '공유마당', desc: '한국 만료·기증 저작물. 작품 → 다운로드 → 받은 파일을 📄 대본 파일 열기', url: 'https://gongu.copyright.or.kr/' },
     { name: 'Internet Archive', desc: '오래된 희곡집. 작품 → 오른쪽 DOWNLOAD OPTIONS의 TEXT 또는 PDF → 📄 대본 파일 열기', url: 'https://archive.org/search?query=plays' },
   ];
-  const MORE_SITES = [...IMPORT_SITES, ...FILE_SITES];
+  const MORE_SITES = [...IMPORT_SITES, GONGU_SEARCH, ...FILE_SITES];
 
   // 붙여 넣은 주소 → 서버가 알아보는 작품 id (gb-책번호 / ws-위키문헌 제목). 모르는 주소는 null
   function parseSourceAddress(input) {
@@ -35,7 +36,8 @@
   const lineCount = (text) => text.split('\n').filter((l) => /^[^()\s][^:]{0,30}:\s|^[A-Z][A-Z .'’-]+$/.test(l.trim())).length;
 
   // dialog: <dialog> 요소, onPick({ text, lang, title, custom }) 고르면 불러옴 (custom: 사용자가 주소로 가져온 작품)
-  function create(dialog, { onPick }) {
+  // onOpenFile(): 앱의 '📄 대본 파일 열기'를 엶 (공유마당 등에서 받은 파일용)
+  function create(dialog, { onPick, onOpenFile }) {
     const status = el('p', { className: 'note import-status', hidden: true });
     const list = el('div', { className: 'library-list' });
     const sections = el('div', { className: 'library-sections', hidden: true });
@@ -126,6 +128,19 @@
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go.click(); } });
       const fileList = el('ul', {});
       FILE_SITES.forEach((site) => fileList.append(el('li', {}, el('a', { href: site.url, target: '_blank', rel: 'noopener noreferrer', textContent: site.name + ' ↗' }), ` — ${site.desc}`)));
+      const openFile = el('button', { className: 'primary', type: 'button', textContent: '📄 받은 파일 열기' });
+      openFile.hidden = !onOpenFile;
+      openFile.onclick = () => { dialog.close(); onOpenFile(); };
+      const gongu = el('div', { className: 'library-gongu' },
+        el('p', { className: 'library-step' }, el('b', { textContent: '📁 공유마당에서 파일로 받기 ' }), '(한국어 희곡)'),
+        el('div', { className: 'library-sites' }, el('a', { className: 'library-site', href: GONGU_SEARCH.url, target: '_blank', rel: 'noopener noreferrer', textContent: `${GONGU_SEARCH.name} ↗` })),
+        step('①', '검색 결과에서 작품을 누르세요'),
+        step('②', '작품 페이지에서 이용 조건을 확인하세요'),
+        el('p', { className: 'note', textContent: '「만료」는 저작권이 끝난 작품이라 자유롭게 연습할 수 있어요. 「CC」·「기증」 표시는 적힌 조건(출처 표시 등) 안에서 쓸 수 있어요. 아무 표시가 없거나 상업적 이용 금지 등 조건이 있으면 개인 연습용으로만 쓰세요.' }),
+        step('③', '「다운로드」를 눌러 파일(한글·PDF·TXT)을 받으세요'),
+        step('④', '이 앱으로 돌아와 받은 파일을 여세요'),
+        el('div', { className: 'row' }, openFile),
+        el('p', { className: 'note', textContent: '휴대폰에서는 받은 파일이 보통 「다운로드」 폴더에 있어요.' }));
       box.append(
         step('①', '아래 목록에서 희곡을 고르세요 (새 창으로 열려요)'),
         siteRow,
@@ -135,6 +150,7 @@
         el('div', { className: 'row library-import' }, input, paste, go),
         importStatus,
         el('p', { className: 'note', textContent: '⚠ 목록에는 저작권이 남은 번역본도 섞여 있어요. 작가·번역가가 세상을 떠난 지 70년이 넘었는지 확인하고, 저작권이 있는 대본은 개인 연습용으로만 쓰고 공유하지 마세요.' }),
+        gongu,
         el('p', { className: 'library-step' }, el('b', { textContent: '그 밖의 사이트 ' }), '(파일로 받아 📄 대본 파일 열기로 넣기)'),
         fileList);
       return box;
