@@ -234,3 +234,15 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
 .insight-evidence li { font-family: var(--serif); color: var(--paper); }
 .insight-section-title { margin: 8px 0 0; font-family: var(--serif); }
 .insight-people { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+
+/* 무료 대본 서재 */
+.library-dialog { width: min(680px, calc(100% - 32px)); }
+.library-filters .active { background: var(--spot); color: var(--stage); border-color: var(--spot); }
+.library-list { max-height: 50vh; overflow-y: auto; margin-top: 8px; }
+.library-item { text-align: left; display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px dashed var(--line); }
+.library-item .note { margin: 2px 0 0; }
+.library-item .primary { flex: none; }
+.library-sections { margin-top: 12px; padding: 12px; border: 1px solid var(--spot); border-radius: var(--radius-sm); }
+.library-more { margin: 12px 0; }
+.library-more ul { padding-left: 18px; line-height: 1.8; }
+.library-more a { color: var(--spot); }

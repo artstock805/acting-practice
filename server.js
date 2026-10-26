@@ -9,6 +9,7 @@ const crypto = require('node:crypto');
 const { createTtsHandler, createGoogleSynthesizer, createDailyBudget } = require('./tts.js');
 const { createAnalyzeHandler, createClaudeClient, analyzeWithClaude } = require('./analyze.js');
 const { insightWithClaude } = require('./insight.js');
+const { createLibraryHandler } = require('./library.js');
 
 const ROOT = path.resolve(process.env.STATIC_ROOT || __dirname);
 const MAX_AUDIO_BYTES = 1024 * 1024;   // 16kHz 모노 16bit 기준 약 32초
@@ -281,7 +282,7 @@ function compressed(entry, encoding) {
   return entry[encoding];
 }
 
-function route({ handleStt, handleTts, handleAnalyze, handleInsight }, req, res) {
+function route({ handleStt, handleTts, handleAnalyze, handleInsight, handleLibrary }, req, res) {
   let pathname;
   try { pathname = new URL(req.url, 'http://x').pathname; } catch { return send(res, 400, ''); }  // 예: 'GET //'
   if (pathname === '/api/stt' && req.method === 'POST') return handleStt(req, res);
@@ -289,6 +290,12 @@ function route({ handleStt, handleTts, handleAnalyze, handleInsight }, req, res)
   if (pathname === '/api/tts' && req.method === 'POST') return handleTts(req, res);
   if (pathname === '/api/analyze' && req.method === 'POST') return handleAnalyze(req, res);
   if (pathname === '/api/insight' && req.method === 'POST') return handleInsight(req, res);
+  const library = /^\/api\/library(?:\/([^/]*))?$/.exec(pathname);
+  if (library && req.method === 'GET') {
+    let id = '';
+    try { id = decodeURIComponent(library[1] || ''); } catch { id = '?'; }
+    return handleLibrary(req, res, id);
+  }
   if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);
   return send(res, 405, '');
 }
@@ -309,6 +316,7 @@ function createServer(opts) {
     readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
   });
   // 초목표·관계도 분석: 배역 분석과 같은 한도 규칙을 따로 적용 (서로의 한도를 깎지 않음)
+  const handleLibrary = createLibraryHandler({ fetchSource: opts && opts.fetchSource, sendJson, clientIp, createRateLimiter });
   const handleInsight = createAnalyzeHandler({
     analyze: opts && 'insight' in opts ? opts.insight : claude && ((args) => insightWithClaude(args, claude)),
     toBody: (insight) => insight,
@@ -317,7 +325,7 @@ function createServer(opts) {
   const server = http.createServer((req, res) => {
     // 요청 하나의 예상 못 한 오류가 프로세스 전체를 멈추지 않게 여기서 받음
     Promise.resolve()
-      .then(() => route({ handleStt, handleTts, handleAnalyze, handleInsight }, req, res))
+      .then(() => route({ handleStt, handleTts, handleAnalyze, handleInsight, handleLibrary }, req, res))
       .catch((err) => {
         console.error('[server]', err && err.stack ? err.stack : err);
         if (!res.headersSent) send(res, 500, '');

@@ -5,9 +5,9 @@ WORKDIR /app
 ENV NODE_ENV=production STATIC_ROOT=/app/public
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
-COPY server.js tts.js analyze.js insight.js voicecatalog.js ./
+COPY server.js tts.js analyze.js insight.js library.js voicecatalog.js ./
 COPY index.html style.css manifest.webmanifest sw.js \
-     parser.js sample.js fileimport.js voicecatalog.js voices.js cloudtts.js speech.js recorder.js audiokit.js cloudstt.js insightview.js app.js \
+     parser.js sample.js fileimport.js voicecatalog.js voices.js cloudtts.js speech.js recorder.js audiokit.js cloudstt.js insightview.js libraryview.js app.js \
      public/
 COPY assets/*.png assets/*.ico public/assets/
 COPY vendor/qrcode.js vendor/fflate.js public/vendor/
