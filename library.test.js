@@ -196,11 +196,9 @@ test('Gutenberg plays with "NAME. speech" on one line (Shaw, Chekhov) are conver
   ]);
 });
 
-test('공유마당 search link filters by 희곡 and expired works, and the play list is complete', () => {
-  const { GONGU_SEARCH, GONGU_PLAYS, gonguWorkUrl } = require('./libraryview.js').LibraryView;
-  const search = new URL(GONGU_SEARCH.url);
-  assert.strictEqual(search.searchParams.get('searchWrd'), '희곡');
-  assert.strictEqual(search.searchParams.get('licenseCd'), '97');
+test('the 공유마당 play list is complete and has no search shortcut', () => {
+  const { GONGU_PLAYS, gonguWorkUrl, MORE_SITES } = require('./libraryview.js').LibraryView;
+  assert.ok(!MORE_SITES.some((s) => /gongu/.test(s.url)));
   const works = GONGU_PLAYS.flatMap(([author, list]) => list.map(([id, title, quick]) => ({ author, id, title, quick })));
   assert.strictEqual(works.length, 84);
   assert.strictEqual(new Set(works.map((w) => w.id)).size, 84);
