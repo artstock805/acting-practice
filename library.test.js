@@ -120,3 +120,78 @@ test('a failing source gives a friendly 502', async () => {
     assert.doesNotMatch(await res.text(), /secret/);
   });
 });
+
+test('a pasted Gutenberg or 위키문헌 address becomes a library id', () => {
+  const { parseSourceAddress } = require('./libraryview.js').LibraryView;
+  assert.strictEqual(parseSourceAddress('https://www.gutenberg.org/ebooks/1524'), 'gb-1524');
+  assert.strictEqual(parseSourceAddress(' gutenberg.org/cache/epub/4093/pg4093.txt '), 'gb-4093');
+  assert.strictEqual(parseSourceAddress('https://www.gutenberg.org/files/2542/2542-h/2542-h.htm'), 'gb-2542');
+  assert.strictEqual(parseSourceAddress('1524'), 'gb-1524');
+  assert.strictEqual(parseSourceAddress('https://ko.wikisource.org/wiki/%EA%B7%9C%ED%95%9C'), 'ws-규한');
+  assert.strictEqual(parseSourceAddress('https://ko.m.wikisource.org/wiki/박용철_산문집/인형의_집#1'), 'ws-박용철 산문집/인형의 집');
+  assert.strictEqual(parseSourceAddress('https://example.com/ebooks/1524'), null);
+  assert.strictEqual(parseSourceAddress(''), null);
+});
+
+test('GET /api/library/gb-:n and ws-:title import a work the user picked', async () => {
+  const urls = [];
+  const fetchSource = async (url) => {
+    urls.push(url);
+    if (url.includes('gutenberg')) return 'Title: Hamlet, Prince of Denmark\nAuthor: William Shakespeare\n' + GUTENBERG.replace('*** END', 'FRANCISCO.\nGo.\n\nFRANCISCO.\nNo.\n\nBARNARDO.\nYes.\n\n*** END');
+    return ';최씨\n:거기는 배 타는 데는 없대요.\n;순옥\n:에그, 형님!\n;최씨\n:그래요?\n;순옥\n:네.\n;최씨\n:가요.\n;순옥\n:그래요.';
+  };
+  await withServer({ fetchSource }, async (base) => {
+    const gb = await (await fetch(`${base}/api/library/gb-1524`)).json();
+    assert.strictEqual(gb.title, 'Hamlet, Prince of Denmark');
+    assert.strictEqual(gb.author, 'William Shakespeare');
+    assert.strictEqual(gb.lang, 'en');
+    assert.strictEqual(gb.custom, true);
+    assert.deepStrictEqual(gb.sections.map((s) => s.title), ['ACT I', 'ACT II']);
+    const ws = await (await fetch(`${base}/api/library/${encodeURIComponent('ws-박용철 산문집/인형의 집')}`)).json();
+    assert.strictEqual(ws.title, '박용철 산문집/인형의 집');
+    assert.strictEqual(ws.lang, 'ko');
+  });
+  assert.strictEqual(urls[0], 'https://www.gutenberg.org/cache/epub/1524/pg1524.txt');
+  assert.strictEqual(urls[1], 'https://ko.wikisource.org/w/index.php?title=' + encodeURIComponent('박용철 산문집/인형의 집') + '&action=raw');
+});
+
+test('imports reject bad ids, missing pages and texts that are not plays', async () => {
+  const fetchSource = async (url) => {
+    if (url.includes('999')) { const err = new Error('source 404'); err.status = 404; throw err; }
+    return 'Title: A Novel\n*** START OF THE PROJECT GUTENBERG EBOOK X ***\nIt was a dark and stormy night.\n\nThe end.';
+  };
+  await withServer({ fetchSource }, async (base) => {
+    for (const id of ['gb-abc', 'gb-1234567', 'ws-a|b', 'ws-', 'ws-<x>']) {
+      assert.strictEqual((await fetch(`${base}/api/library/${encodeURIComponent(id)}`)).status, 404, id);
+    }
+    assert.strictEqual((await fetch(`${base}/api/library/gb-999`)).status, 404);
+    const novel = await fetch(`${base}/api/library/gb-11`);
+    assert.strictEqual(novel.status, 422);
+    assert.match((await novel.json()).error, /대사/);
+  });
+});
+
+test('Gutenberg plays with "NAME. speech" on one line (Shaw, Chekhov) are converted too', () => {
+  const raw = [
+    '*** START OF THE PROJECT GUTENBERG EBOOK PYGMALION ***',
+    'PREFACE TO PYGMALION.', '', 'A long preface about phonetics.', '',
+    'ACT I', '', 'Covent Garden at 11.15 p.m.', '',
+    'THE FLOWER GIRL. Nah then, Freddy: look wh’ y’ gowin, deah.', '',
+    'FREDDY. Sorry.', '',
+    'THE FLOWER GIRL [picking up her scattered flowers and replacing them in',
+    'the basket] Theres menners f’ yer!', '',
+    'FREDDY. Not at all.', '',
+    'THE FLOWER GIRL. Ow, eez ye-ooa san, is e?', '',
+    '*** END OF THE PROJECT GUTENBERG EBOOK PYGMALION ***',
+  ].join('\n');
+  const text = convertGutenberg(raw);
+  assert.doesNotMatch(text, /phonetics/);
+  const lines = K.parseScript(text).filter((i) => i.type === 'line').map((i) => [i.character, i.text, i.note]);
+  assert.deepStrictEqual(lines, [
+    ['THE FLOWER GIRL', 'Nah then, Freddy: look wh’ y’ gowin, deah.', ''],
+    ['FREDDY', 'Sorry.', ''],
+    ['THE FLOWER GIRL', 'Theres menners f’ yer!', 'picking up her scattered flowers and replacing them in the basket'],
+    ['FREDDY', 'Not at all.', ''],
+    ['THE FLOWER GIRL', 'Ow, eez ye-ooa san, is e?', ''],
+  ]);
+});

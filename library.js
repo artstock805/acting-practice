@@ -1,12 +1,17 @@
 // 무료 대본 서재 (GET /api/library, /api/library/:id): 저작권이 끝난 공개 저작물(퍼블릭 도메인) 희곡을
 // 정해 둔 출처(Project Gutenberg, 한국어 위키문헌)에서 받아 앱이 알아보는 형식으로 바꿔 줌.
-// 출처 주소는 서버의 목록에만 있음 (사용자가 다른 주소를 시킬 수 없음). 한 번 받은 작품은 메모리에 둠
+// 출처 주소는 서버가 만듦: 목록의 작품, 또는 사용자가 붙여 넣은 Gutenberg 책 번호(gb-1524)·위키문헌 제목(ws-규한)만.
+// 다른 사이트 주소는 받지 않음. 한 번 받은 작품은 메모리에 둠
 'use strict';
 
 const SOURCE_TIMEOUT_MS = 15_000;
 const MAX_SOURCE_BYTES = 3 * 1024 * 1024;
 const LIBRARY_RATE_LIMIT = { max: 30, windowMs: 10 * 60_000 };
 const ID_RE = /^[a-z0-9-]{1,40}$/;
+const GB_IMPORT_RE = /^gb-(\d{1,6})$/;
+const WS_IMPORT_RE = /^ws-([^#|<>[\]{}\u0000-\u001f]{1,100})$/u;
+const MAX_CACHED_IMPORTS = 30;
+const MIN_IMPORT_LINES = 3;  // 희곡 판단: 이만큼 이상 말하는 인물이 둘은 있어야 함
 
 const gutenberg = (id) => `https://www.gutenberg.org/cache/epub/${id}/pg${id}.txt`;
 const wikisource = (title) => `https://ko.wikisource.org/w/index.php?title=${encodeURIComponent(title)}&action=raw`;
@@ -32,6 +37,9 @@ const publicInfo = ({ url, ...work }) => ({ ...work, sourceName: SOURCE_NAMES[wo
 // ---------- Project Gutenberg ----------
 // "HAMLET." 처럼 대문자 이름 + 마침표만 있는 줄 다음 문단이 대사. [지문]·_[지문]_은 (지문)으로
 const GB_CUE = /^([A-Z][A-Z .'’,-]*[A-Z])\.\s*$/;
+// 한 줄에 이름과 대사: "DORN. I see." / "THE FLOWER GIRL [hopefully] I can…" (쇼·체호프 판본)
+const GB_INLINE = /^([A-Z][A-Z .'’,-]*[A-Z])(?:\.\s+|\s+(?=_?\[))(\S.*)$/;
+const GB_TITLE_ONLY = /^(MRS?|MS|DR|ST|MME|MLLE|MESSRS)$/;
 const GB_ACT = /^\s*(ACT\s+([IVXLC]+|\d+|FIRST|SECOND|THIRD|FOURTH|FIFTH)\b|(FIRST|SECOND|THIRD|FOURTH|FIFTH)\s+ACT\b)/i;
 const GB_SCENE = /^\s*SCENE\s+([IVXLC]+|\d+)\b/i;
 
@@ -46,20 +54,32 @@ function convertGutenberg(raw) {
   const body = all.slice(start >= 0 ? all.indexOf('\n', start) + 1 : 0, end >= 0 ? end : all.length);
   const lines = body.split('\n');
   // 목차·머리말·해설을 건너뜀: 이름 줄이 세 번 이상 나오는 첫 막(ACT) 제목부터 (목차의 ACT 줄, 해설의 INTRODUCTION. 은 제외)
-  const isCueLine = (l) => GB_CUE.test(l.trim()) && !GB_ACT.test(l) && !GB_SCENE.test(l);
+  const notHeading = (l) => !GB_ACT.test(l) && !GB_SCENE.test(l);
+  // "MRS. ELVSTED goes out." 같은 지문 줄이 "MRS"의 대사로 잡히지 않게 호칭만 있는 이름은 뺌
+  const isInline = (l) => { const m = GB_INLINE.exec(l.trim()); return !!m && !GB_TITLE_ONLY.test(m[1]) && notHeading(l); };
+  const isCueLine = (l) => (GB_CUE.test(l.trim()) || isInline(l)) && notHeading(l);
   const acts = lines.map((l, i) => (GB_ACT.test(l) ? i : -1)).filter((i) => i >= 0);
   const firstAct = acts.find((a, k) => lines.slice(a + 1, acts[k + 1] ?? lines.length).filter(isCueLine).length >= 3);
   const from = firstAct ?? lines.findIndex(isCueLine);
-  const paragraphs = lines.slice(Math.max(0, from)).join('\n').split(/\n\s*\n/).map((p) => p.split('\n').map((l) => l.trim()).filter(Boolean)).filter((p) => p.length);
-  const isCue = (p) => GB_CUE.test(p[0]) && !GB_ACT.test(p[0]) && !GB_SCENE.test(p[0]);
+  // 빈 줄 없이 이어지는 대사도 "이름. 대사" 줄에서 끊음
+  const paragraphs = lines.slice(Math.max(0, from)).join('\n').split(/\n\s*\n/)
+    .flatMap((p) => p.split('\n').map((l) => l.trim()).filter(Boolean)
+      .reduce((parts, l) => { if (!parts.length || isInline(l)) parts.push([l]); else parts[parts.length - 1].push(l); return parts; }, []));
+  const isCue = (p) => GB_CUE.test(p[0]) && notHeading(p[0]);
   const out = [];
   for (let i = 0; i < paragraphs.length; i++) {
     const p = paragraphs[i];
+    if (isInline(p[0])) {
+      const [, name, first] = GB_INLINE.exec(p[0]);
+      out.push(`${name}: ${cleanGutenberg([first, ...p.slice(1)].join(' '))}`);
+      continue;
+    }
     if (isCue(p)) {
       // 이름 줄 다음에 빈 줄을 두고 대사가 오는 판본(헤다 가블러 등)은 다음 문단을 대사로
       const rest = p.length > 1 ? p.slice(1) : (paragraphs[i + 1] && !isCue(paragraphs[i + 1]) ? paragraphs[++i] : []);
       const speech = cleanGutenberg(rest.join(' '));
-      if (speech) out.push(`${GB_CUE.exec(p[0])[1]}\n${speech}`);
+      // "이름: 대사" 한 줄로 (대사가 "Welcome hither: …"처럼 쌍점을 품어도 새 인물로 잘못 잡히지 않게)
+      if (speech) out.push(`${GB_CUE.exec(p[0])[1]}: ${speech}`);
       continue;
     }
     const text = cleanGutenberg(p.join(' '));
@@ -127,10 +147,44 @@ function splitSections(text, lang) {
 
 async function fetchSourceText(url) {
   const res = await fetch(url, { headers: { 'User-Agent': 'acting-practice script library (one copy per work, cached)' }, signal: AbortSignal.timeout(SOURCE_TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`source ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(`source ${res.status}`), { status: res.status === 404 ? 404 : 502 });
   const text = await res.text();
   if (text.length > MAX_SOURCE_BYTES) throw new Error('source too large');
   return text;
+}
+
+// 붙여 넣은 작품: 저작권은 사용자가 확인 (Gutenberg는 미국 기준 공개 저작물)
+function importedWork(id) {
+  const gb = GB_IMPORT_RE.exec(id);
+  if (gb) return { id, title: `Project Gutenberg #${gb[1]}`, author: '', source: 'gutenberg', url: gutenberg(gb[1]), custom: true };
+  const ws = WS_IMPORT_RE.exec(id);
+  const title = ws && ws[1].trim();
+  if (title) return { id, title, author: '', source: 'wikisource', url: wikisource(title), custom: true };
+  return null;
+}
+
+// Gutenberg 머리말의 "Title: …", "Author: …"
+function headerField(raw, name) {
+  const line = String(raw).slice(0, 5000).split('\n').find((l) => l.startsWith(name + ':'));
+  return line ? line.slice(name.length + 1).trim() : '';
+}
+
+function detectLang(text) {
+  const hangul = (text.match(/[가-힣]/g) || []).length;
+  const latin = (text.match(/[A-Za-z]/g) || []).length;
+  return latin > hangul * 3 ? 'en' : 'ko';
+}
+
+// 희곡인지: 대사를 MIN_IMPORT_LINES번 이상 하는 인물이 둘 이상 (소설의 "CHAPTER I." 같은 줄은 한 번씩만 나옴)
+const SPEAKER_LINE = /^([A-Z][A-Z .'’,-]*[A-Z])$|^([^()\s][^:]{0,30}):\s/;
+function looksLikePlay(text) {
+  const counts = new Map();
+  text.split('\n').forEach((l) => {
+    const m = SPEAKER_LINE.exec(l.trim());
+    const name = m && (m[1] || m[2]);
+    if (name && !GB_ACT.test(name) && !GB_SCENE.test(name)) counts.set(name, (counts.get(name) || 0) + 1);
+  });
+  return [...counts.values()].filter((n) => n >= MIN_IMPORT_LINES).length >= 2;
 }
 
 function createLibraryHandler({ fetchSource = fetchSourceText, sendJson, clientIp, createRateLimiter }) {
@@ -142,8 +196,20 @@ function createLibraryHandler({ fetchSource = fetchSourceText, sendJson, clientI
     if (!cache.has(work.id)) {
       const pending = fetchSource(work.url).then((raw) => {
         const text = work.source === 'gutenberg' ? convertGutenberg(raw) : convertWikisource(raw);
-        return { ...publicInfo(work), text, sections: splitSections(text, work.lang) };
+        if (!work.custom) return { ...publicInfo(work), text, sections: splitSections(text, work.lang) };
+        if (!looksLikePlay(text)) throw Object.assign(new Error('not a play'), { status: 422 });
+        const lang = work.source === 'wikisource' ? 'ko' : detectLang(text);
+        const info = { ...publicInfo(work), lang, rights: '직접 고른 작품: 저작권을 확인하세요' };
+        if (work.source === 'gutenberg') {
+          info.title = headerField(raw, 'Title') || info.title;
+          info.author = headerField(raw, 'Author');
+        }
+        return { ...info, text, sections: splitSections(text, lang) };
       });
+      if (work.custom) {
+        const imports = [...cache.keys()].filter((k) => !byId.has(k));
+        if (imports.length >= MAX_CACHED_IMPORTS) cache.delete(imports[0]);  // 가장 오래된 것부터 비움
+      }
       cache.set(work.id, pending);
       pending.catch(() => cache.delete(work.id));  // 실패하면 다음에 다시 시도
     }
@@ -152,12 +218,14 @@ function createLibraryHandler({ fetchSource = fetchSourceText, sendJson, clientI
 
   return async function handleLibrary(req, res, id) {
     if (!id) return sendJson(res, 200, { works: CATALOG.map(publicInfo) });
-    const work = ID_RE.test(id) && byId.get(id);
+    const work = (ID_RE.test(id) && byId.get(id)) || importedWork(id);
     if (!work) return sendJson(res, 404, { error: '그런 작품이 없습니다.' });
     if (!allow(clientIp(req))) return sendJson(res, 429, { error: '잠시 뒤 다시 해 주세요.' });
     try {
       return sendJson(res, 200, await load(work));
     } catch (err) {
+      if (err.status === 404) return sendJson(res, 404, { error: '그 주소의 작품을 찾지 못했어요. 주소를 다시 확인해 주세요.' });
+      if (err.status === 422) return sendJson(res, 422, { error: '대사를 찾지 못했어요. 희곡(대본)이 아니거나, 글자 없이 스캔 이미지로만 된 작품일 수 있어요.' });
       console.error('[library]', work.id, err.message);
       return sendJson(res, 502, { error: '대본을 받아 오지 못했습니다. 잠시 뒤 다시 해 주세요.' });
     }
