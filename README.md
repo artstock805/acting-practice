@@ -104,7 +104,7 @@ gcloud builds submit --config cloudbuild.yaml --project=acting-practice --region
 ```
 - 서비스 계정: 빌드 `acting-practice-build`(Cloud Run 배포·이미지 업로드·로그만), 실행 `acting-practice-run`(Speech 사용량만)
 - 비용: GCP 예산 알림 월 5,000원(50·90·100%에서 메일) + 월 10,000원(넘었거나 넘을 것으로 예상되면 메일). Claude API 비용은 Anthropic Console에서 따로 한도·알림 설정
-- 음성 합성: `tts.js` (`POST /api/tts`, Chirp 3 HD MP3). 목록(`voicecatalog.js`)에 있는 목소리만, 대사 400자까지, 인스턴스당 하루 4만 자·사람(IP)당 하루 2만 자, 같은 대사는 메모리 캐시(20MB)
+- 음성 합성: `tts.js` (`POST /api/tts`, Chirp 3 HD MP3). 목록(`voicecatalog.js`)에 있는 목소리만, 대사 400자까지, 인스턴스당 하루 8만 자·사람(IP)당 하루 4만 자, 같은 대사는 메모리 캐시(20MB)
 - AI 배역 분석: `analyze.js` (`POST /api/analyze`, `claude-opus-5-5`, 구조화된 출력). 대본 15만 자·배역 40명까지, IP당 10분에 5회·하루 10회, 인스턴스당 시간당 10회·하루 20회·동시 2건. 키는 Secret Manager `anthropic-api-key` → 환경 변수 `ANTHROPIC_API_KEY` (키가 없으면 '설정 안 됨' 안내만)
 - 음성 인식은 서비스 계정 권한으로 Google Speech-to-Text를 부르므로 **API 키가 필요 없습니다** (`speech.googleapis.com` 사용 설정 필요).
 - 남용 방지: 녹음 20초·1MB까지, IP당 분당 30회, 인스턴스 최대 3개

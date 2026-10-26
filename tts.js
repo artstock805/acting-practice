@@ -8,8 +8,10 @@ const { isCloudVoice, clampRate, languageOf } = require('./voicecatalog.js');
 const TTS_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const MAX_TTS_CHARS = 400;
 const MAX_BODY_BYTES = 4 * 1024;
-const DAILY_CHARS = 40_000;              // 인스턴스 하나가 하루에 새로 합성하는 글자 수 상한 (최대 3개 인스턴스)
-const DAILY_CHARS_PER_CLIENT = 20_000;   // 한 사람(IP)이 하루에 새로 합성하는 글자 수 상한 (장편 대본 한 번 연습 분량)
+const DAILY_CHARS = 80_000;              // 인스턴스 하나가 하루에 새로 합성하는 글자 수 상한 (최대 3개 인스턴스)
+// 한 사람(IP)이 하루에 새로 합성하는 글자 수 상한: 장편에서 작은 배역을 맡아도 한 번은 끝까지 가는 양
+// (예: '국물 있사옵니다'에서 아미 역 → 상대 대사·괄호 지문 약 3만 2천 자)
+const DAILY_CHARS_PER_CLIENT = 40_000;
 const CACHE_MAX_BYTES = 20 * 1024 * 1024;
 const TTS_RATE_LIMIT = { max: 120, windowMs: 60_000 };
 const TTS_GLOBAL_LIMIT = { max: 600, windowMs: 60_000 };
