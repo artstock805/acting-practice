@@ -97,12 +97,17 @@ async function analyzeWithClaude({ script, characters }, client) {
 }
 
 // 키가 있을 때만 SDK를 불러 Claude 호출 함수를 만듦 (테스트·키 없는 환경에서는 SDK가 필요 없음)
-function createClaudeAnalyzer(rawKey = process.env.ANTHROPIC_API_KEY) {
+// 키가 있을 때만 SDK 클라이언트를 만듦 (배역 분석·초목표 분석이 같이 씀)
+function createClaudeClient(rawKey = process.env.ANTHROPIC_API_KEY) {
   const apiKey = (rawKey || '').trim();  // 키를 넣을 때 딸려 온 줄바꿈 제거
   if (!apiKey) return null;
   const Anthropic = require('@anthropic-ai/sdk');
-  const client = new Anthropic({ apiKey, timeout: CLAUDE_TIMEOUT_MS, maxRetries: 1 });
-  return (args) => analyzeWithClaude(args, client);
+  return new Anthropic({ apiKey, timeout: CLAUDE_TIMEOUT_MS, maxRetries: 1 });
+}
+
+function createClaudeAnalyzer(rawKey = process.env.ANTHROPIC_API_KEY) {
+  const client = createClaudeClient(rawKey);
+  return client && ((args) => analyzeWithClaude(args, client));
 }
 
 function parseRequest(raw) {
@@ -117,7 +122,8 @@ function parseRequest(raw) {
   return { script, characters: names };
 }
 
-function createAnalyzeHandler({ analyze, readBody, sendJson, clientIp, createRateLimiter, createDailyBudget, daily = DAILY_ANALYSES, maxInFlight = MAX_IN_FLIGHT }) {
+// toBody: 분석 결과를 응답 본문으로 (배역 분석은 { characters }, 초목표 분석은 결과 그대로)
+function createAnalyzeHandler({ analyze, readBody, sendJson, clientIp, createRateLimiter, createDailyBudget, daily = DAILY_ANALYSES, maxInFlight = MAX_IN_FLIGHT, toBody = (characters) => ({ characters }) }) {
   const allow = createRateLimiter(ANALYZE_RATE_LIMIT);
   const allowGlobal = createRateLimiter(ANALYZE_GLOBAL_LIMIT);
   const spendAll = createDailyBudget(daily);
@@ -138,7 +144,7 @@ function createAnalyzeHandler({ analyze, readBody, sendJson, clientIp, createRat
     if (!spendAll(1)) { spendClient.refund(1, who); return sendJson(res, 429, { error: USED_UP }); }
     inFlight++;
     try {
-      return sendJson(res, 200, { characters: await analyze(parsed) });
+      return sendJson(res, 200, toBody(await analyze(parsed)));
     } catch (err) {
       spendAll.refund(1);
       spendClient.refund(1, who);
@@ -150,4 +156,4 @@ function createAnalyzeHandler({ analyze, readBody, sendJson, clientIp, createRat
   };
 }
 
-module.exports = { createAnalyzeHandler, createClaudeAnalyzer, analyzeWithClaude, buildPrompt, normalizeCasting, MAX_SCRIPT_CHARS };
+module.exports = { createAnalyzeHandler, createClaudeClient, createClaudeAnalyzer, MODEL, analyzeWithClaude, buildPrompt, normalizeCasting, MAX_SCRIPT_CHARS };

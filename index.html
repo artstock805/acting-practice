@@ -27,6 +27,7 @@
       <button data-view="script" class="tab active">1. 대본</button>
       <button data-view="cast" class="tab" disabled>2. 배역</button>
       <button data-view="practice" class="tab" disabled>3. 연습</button>
+      <button data-view="insight" class="tab" disabled>4. 분석</button>
     </nav>
   </header>
 
@@ -98,6 +99,22 @@
       <div class="row"><span class="spacer"></span><button id="btn-to-practice" class="primary">연습 시작 →</button></div>
     </section>
 
+    <!-- 4. 작품 분석: 초목표·관계도 -->
+    <section id="view-insight" class="view">
+      <p class="help">대본 전체의 초목표와 배역별 초목표, 인물 관계도를 정리합니다. AI가 초안을 쓰면 칸을 눌러 내 해석으로 고치세요. 고친 내용은 이 브라우저에 자동 저장됩니다.</p>
+      <div class="ai-box option-row">
+        <button id="btn-insight" class="primary">🤖 AI로 초목표·관계도 그리기</button>
+        <button type="button" class="info-btn" data-help="help-insight" aria-expanded="false" aria-label="작품 분석 설명 보기">ⓘ</button>
+        <p id="help-insight" class="option-help" hidden><b>초목표</b>는 인물(또는 작품)이 처음부터 끝까지 끝내 이루려는 가장 큰 목표, <b>관통행동</b>은 그 목표를 향해 극 전체를 꿰뚫는 행동, <b>장애물</b>은 그것을 막는 것입니다. 버튼을 누르면 대본 전체가 Claude(Anthropic의 AI)로 전송되어 작품·배역별 초목표와 근거 대사, 인물 관계를 정리하고 관계도를 그립니다(서버에 저장하지 않음). 긴 대본 한 번에 약 300~500원이 들며 10분에 5번까지 할 수 있어요. 관계도는 🖼 이미지로 저장, 내용은 📋 복사로 노션 등에 붙여 넣을 수 있어요.</p>
+        <p id="insight-status" class="note import-status" hidden></p>
+      </div>
+      <div id="insight-actions" class="row" hidden>
+        <button id="btn-insight-png" class="ghost">🖼 관계도 이미지로 저장</button>
+        <button id="btn-insight-copy" class="ghost">📋 텍스트 복사</button>
+      </div>
+      <div id="insight-body" class="insight-body"></div>
+    </section>
+
     <!-- 3. 연습 -->
     <section id="view-practice" class="view">
       <div id="stage" class="stage">
@@ -157,6 +174,7 @@
   <script src="recorder.js"></script>
   <script src="audiokit.js"></script>
   <script src="cloudstt.js"></script>
+  <script src="insightview.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
