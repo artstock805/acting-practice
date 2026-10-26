@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
 
-  const LANG = 'ko-KR';
+  let lang = 'ko-KR';           // 대본 언어 (setLanguage로 바꿈)
   const SILENCE_MS = 1400;      // 말이 끝났다고 보는 침묵 길이
   const NO_SPEECH_MS = 15000;   // 아무 말도 없을 때 대기 한도
   const ALTERNATIVES = 5;       // 인식 후보 수 (대사와 가장 가까운 것을 고름)
@@ -17,12 +17,16 @@
   const CLOUD_MAX_RATE = 1.4;
   const Recognition = root.SpeechRecognition || root.webkitSpeechRecognition;
 
+  // 이 기기의 음성 중 대본 언어에 맞는 것 (없으면 전부)
   function getKoreanVoices() {
     if (!synth) return [];
     const all = synth.getVoices();
-    const ko = all.filter((v) => v.lang && v.lang.toLowerCase().startsWith('ko'));
-    return ko.length ? ko : all;
+    const prefix = lang.slice(0, 2).toLowerCase();
+    const matching = all.filter((v) => v.lang && v.lang.toLowerCase().startsWith(prefix));
+    return matching.length ? matching : all;
   }
+
+  function setLanguage(next) { lang = next === 'en-US' ? 'en-US' : 'ko-KR'; }
 
   // Edge의 온라인 음성처럼 늦게 추가되는 음성도 반영되도록 바뀔 때마다 호출
   function onVoicesReady(cb) {
@@ -64,7 +68,7 @@
       synth.cancel();
       const e = EMOTION_TUNE[cfg.emotionKey] || { pitch: 1, rate: 1, volume: 1 };
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = LANG;
+      u.lang = lang;
       const voice = getKoreanVoices().find((v) => v.voiceURI === cfg.voiceURI);
       if (voice) u.voice = voice;
       u.pitch = clamp((cfg.pitch || 1) * e.pitch, 0, 2);
@@ -97,7 +101,7 @@
   function listen({ onInterim, shouldStopEarly, silenceMs = SILENCE_MS, pickAlternative } = {}) {
     if (!Recognition) return { promise: Promise.reject(new Error('unsupported')), stop() {} };
     const rec = new Recognition();
-    rec.lang = LANG;
+    rec.lang = lang;
     rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = ALTERNATIVES;
@@ -177,5 +181,5 @@
 
   function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 
-  root.Speech = { onVoicesReady, getKoreanVoices, speak, prefetch, stopSpeaking, unlock, listen, setCloudErrorHandler: (fn) => { onCloudError = fn; }, canListen: !!Recognition, canSpeak: !!synth };
+  root.Speech = { onVoicesReady, getKoreanVoices, setLanguage, getLanguage: () => lang, speak, prefetch, stopSpeaking, unlock, listen, setCloudErrorHandler: (fn) => { onCloudError = fn; }, canListen: !!Recognition, canSpeak: !!synth };
 })(window);

@@ -38,11 +38,25 @@
     { id: 'ko-KR-Chirp3-HD-Callirrhoe', gender: 'female', pitch: 262, tone: '느긋하고 편안한' },
   ];
 
-  // 지문·괄호 지문을 읽는 해설 목소리. 배역과 섞이지 않게 AI 추천에서는 빼 둠
-  const NARRATOR_VOICE_ID = 'ko-KR-Chirp3-HD-Rasalgethi';
-  const CASTABLE = VOICES.filter((v) => v.id !== NARRATOR_VOICE_ID);
+  // 대본 언어별로 같은 목소리(같은 이름)를 씀: ko-KR-Chirp3-HD-Kore ↔ en-US-Chirp3-HD-Kore
+  // (음높이·성격은 한국어 목소리로 잰 값. 같은 성우 모델이라 영어에서도 비슷함)
+  const LOCALES = { ko: 'ko-KR', en: 'en-US' };
+  const localeOf = (lang) => LOCALES[lang] || LOCALES.ko;
+  const forLocale = (locale) => VOICES.map((v) => ({ ...v, id: v.id.replace(/^ko-KR-/, locale + '-') }));
+  const ALL = Object.values(LOCALES).flatMap(forLocale);
 
-  const BY_ID = new Map(VOICES.map((v) => [v.id, v]));
+  // 지문·괄호 지문을 읽는 해설 목소리. 배역과 섞이지 않게 AI 추천에서는 빼 둠
+  const NARRATOR_NAME = 'Chirp3-HD-Rasalgethi';
+  const narratorVoiceId = (lang) => `${localeOf(lang)}-${NARRATOR_NAME}`;
+  const castable = (lang) => forLocale(localeOf(lang)).filter((v) => v.id !== narratorVoiceId(lang));
+  const NARRATOR_VOICE_ID = narratorVoiceId('ko');
+  const CASTABLE = castable('ko');
+
+  // 'en-US-Chirp3-HD-Kore' → 'en-US', 다른 언어의 같은 목소리로 바꾸기
+  const languageOf = (id) => String(id).slice(0, 5);
+  const toLanguage = (id, lang) => String(id).replace(/^[a-z]{2}-[A-Z]{2}-/, localeOf(lang) + '-');
+
+  const BY_ID = new Map(ALL.map((v) => [v.id, v]));
   const MIN_RATE = 0.7;
   const MAX_RATE = 1.4;
 
@@ -59,7 +73,8 @@
   const isCloudVoice = (id) => BY_ID.has(id);
   const clampRate = (r) => Math.min(MAX_RATE, Math.max(MIN_RATE, Number(r) || 1));
 
-  const api = { VOICES, CASTABLE, NARRATOR_VOICE_ID, MIN_RATE, MAX_RATE, voiceLabel, pitchWord, isCloudVoice, clampRate, getVoice: (id) => BY_ID.get(id) };
+  const api = { VOICES, CASTABLE, NARRATOR_VOICE_ID, LOCALES, MIN_RATE, MAX_RATE, castable, narratorVoiceId, languageOf, toLanguage, localeOf,
+    voiceLabel, pitchWord, isCloudVoice, clampRate, getVoice: (id) => BY_ID.get(id) };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.VoiceCatalog = api;
 })(this);

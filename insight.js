@@ -1,7 +1,7 @@
 // 작품 분석 (POST /api/insight): 대본을 Claude에게 보내 작품 전체 초목표·주제·관통행동,
 // 배역별 초목표·관통행동·장애물·근거 대사, 인물 관계(관계도용)를 받음. 사용자가 버튼을 눌렀을 때만 불림
 'use strict';
-const { MODEL } = require('./analyze.js');
+const { MODEL, ENGLISH_NOTE } = require('./analyze.js');
 
 const KINDS = ['love', 'family', 'friend', 'rival', 'hostile', 'work', 'other'];
 const DIRECTIONS = ['mutual', 'a_to_b', 'b_to_a'];
@@ -42,10 +42,11 @@ const SCHEMA = {
   additionalProperties: false,
 };
 
-function buildInsightPrompt(script, characters) {
+function buildInsightPrompt(script, characters, lang = 'ko') {
   const system = [
     '당신은 스타니슬랍스키 방법을 쓰는 연기 코치이자 드라마투르그입니다. 배우가 대본을 분석하도록 돕습니다.',
     '대본을 읽고 다음을 한국어로 정리하세요.',
+    ...(lang === 'en' ? [ENGLISH_NOTE + ' 근거 대사는 영어 원문 그대로 옮기세요.'] : []),
     '- 작품 전체: 초목표(작품이 끝내 말하려는 것, 한 문장), 주제(짧은 말), 관통행동(극 전체를 꿰뚫는 큰 행동), 줄거리 요약(두세 문장).',
     '- 배역마다: 초목표(그 인물이 극 전체에서 끝내 원하는 것), 관통행동, 가장 큰 장애물, 근거가 되는 짧은 대사 1~3개(대본에 있는 그대로, 60자 이내).',
     '- 인물 관계: 의미 있는 관계만 골라 두 인물(a, b), 종류(kind), 짧은 이름(label, 예: 헤어진 연인, 형제, 상사와 부하), 방향(일방적이면 a_to_b), 한 줄 설명(note).',
@@ -89,8 +90,8 @@ function normalizeInsight(raw, characters) {
   };
 }
 
-async function insightWithClaude({ script, characters }, client) {
-  const { system, user } = buildInsightPrompt(script, characters);
+async function insightWithClaude({ script, characters, lang = 'ko' }, client) {
+  const { system, user } = buildInsightPrompt(script, characters, lang);
   const response = await client.beta.messages.create({
     model: MODEL,
     max_tokens: 16000,

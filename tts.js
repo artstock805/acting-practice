@@ -3,7 +3,7 @@
 // 같은 대사·목소리·속도는 메모리에 저장해 두고 다시 합성하지 않음 (반복 연습에서 비용이 거의 안 듦)
 'use strict';
 const crypto = require('node:crypto');
-const { isCloudVoice, clampRate } = require('./voicecatalog.js');
+const { isCloudVoice, clampRate, languageOf } = require('./voicecatalog.js');
 
 const TTS_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const MAX_TTS_CHARS = 400;
@@ -22,7 +22,7 @@ function createGoogleSynthesizer({ getAuth, timeoutMs }) {
     const res = await fetch(TTS_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(project ? { 'x-goog-user-project': project } : {}) },
-      body: JSON.stringify({ input: { text }, voice: { languageCode: 'ko-KR', name: voice }, audioConfig: { audioEncoding: 'MP3', speakingRate: rate } }),
+      body: JSON.stringify({ input: { text }, voice: { languageCode: languageOf(voice), name: voice }, audioConfig: { audioEncoding: 'MP3', speakingRate: rate } }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`tts ${res.status}: ${(await res.text()).slice(0, 200)}`);

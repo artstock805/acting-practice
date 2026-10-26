@@ -3,7 +3,14 @@
   'use strict';
 
   const MAX_NAME_LEN = 15;
-  const SCENE_RE = /^\s*(S\s*#\s*\d+|#\s*\d+|씬\s*\d+|장면\s*\d+|INT\.|EXT\.|\d+\.\s*(실내|실외|내부|외부))/i;
+  const SCENE_RE = /^\s*(S\s*#\s*\d+|#\s*\d+|씬\s*\d+|장면\s*\d+|INT\.|EXT\.|INT\.?\s*\/\s*EXT\.?|I\/E\.?\s|SCENE\s*\d+|ACT\s+([IVX]+|\d+)\b|\d+\.\s*(실내|실외|내부|외부))/i;
+  // 영어 시나리오: 대문자만으로 된 인물 이름 줄 ("MAYA", "DANIEL (O.S.)", "MRS. HENDERSON (CONT'D)")
+  const CUE_RE = /^([A-Z][A-Z0-9 .'’&-]*[A-Z0-9])((?:\s*\([A-Z0-9 .'’-]+\))*)\s*$/;
+  const MAX_CUE_LEN = 30;
+  // 장면 전환 표시는 지문 ("CUT TO:", "FADE OUT.", "THE END")
+  const TRANSITION_RE = /^(FADE (IN|OUT|TO BLACK)|CUT TO|SMASH CUT|MATCH CUT|JUMP CUT|DISSOLVE TO|INTERCUT|BACK TO|THE END|END OF|CONTINUED|MORE)\b/;
+  // 영어 희곡식 "NORA. Torvald, I have something to say."
+  const CAPS_DOT_RE = /^([A-Z][A-Z .'’-]{1,24}[A-Z])\.\s+(\S.*)$/;
   const INLINE_RE = new RegExp('^\\s*([^\\s:：()（）][^:：()（）]{0,' + (MAX_NAME_LEN - 1) + '}?)\\s*(\\([^)]*\\))?\\s*[:：]\\s*(.+)$');
   const DIRECTION_RE = /^\s*[(（\[].*[)）\]]\s*$/;
   // "[이름] 대사" 형식. [BGM]·[Effect] 같은 무대 표시는 이름이 아님
@@ -20,7 +27,10 @@
     '과거', '현재', '장면', '다음', '이어', '이윽고', '등장인물',
     // 대사·지문 첫머리에 흔한 말 (시나리오·쌍점 대본에서 이름으로 오인하지 않게)
     '아니', '아니야', '우리', '그래', '근데', '내가', '네가', '그럼', '그냥', '정말', '진짜', '이제', '지금', '여기', '저기', '거기',
-    '그건', '이건', '저건', '어서', '자네', '당신', '혹시', '제발', '얼른', '빨리', '아마', '역시', '그러니까', '그러면']);
+    '그건', '이건', '저건', '어서', '자네', '당신', '혹시', '제발', '얼른', '빨리', '아마', '역시', '그러니까', '그러면',
+    // 영어 지문·대사 첫머리에 흔한 말
+    'The', 'She', 'He', 'They', 'We', 'It', 'A', 'An', 'And', 'But', 'Then', 'Now', 'This', 'That', 'There', 'You', 'His', 'Her',
+    'Our', 'Their', 'What', 'When', 'Where', 'Why', 'How', 'Yes', 'No', 'Oh', 'Well', 'So', 'In', 'On', 'At', 'As', 'If', 'All']);
   const SPOKEN_LINE_RE = /^([가-힣A-Za-z]{1,6})\s+(\S.*)$/;
   // 문서 전체가 희곡식일 때만 이 인식을 켬: 이름으로 시작하는 줄이 이 비율 이상이고, 쌍점·시나리오식 줄보다 확실히 많아야 함
   const PLAY_MIN_SHARE = 0.3;
@@ -56,10 +66,36 @@
     return names;
   }
 
+  // 대본 언어: 한글이 영어 글자의 1/3도 안 되면 영어 대본 (한국어 대본 속 영어 낱말·이름은 한국어로 봄)
+  function detectLanguage(text) {
+    const s = String(text || '');
+    const hangul = (s.match(/[가-힣]/g) || []).length;
+    const latin = (s.match(/[A-Za-z]/g) || []).length;
+    return latin > hangul * 3 ? 'en' : 'ko';
+  }
+
+  function isCue(line) {
+    const m = CUE_RE.exec(line);
+    if (!m || TRANSITION_RE.test(line) || m[1].length > MAX_CUE_LEN) return null;
+    if ((m[1].match(/[A-Z]/g) || []).length < 2 || m[1].split(/\s+/).length > 4) return null;
+    return m[1].trim();
+  }
+
+  // 영어 희곡식 "NAME. 대사": 같은 이름이 두 번 이상, 이런 줄이 모두 세 번 이상 나올 때만
+  function findCapsDotNames(lines) {
+    const counts = new Map();
+    lines.forEach((raw) => { const m = CAPS_DOT_RE.exec(String(raw).trim()); if (m) counts.set(m[1], (counts.get(m[1]) || 0) + 1); });
+    const total = [...counts.values()].reduce((a, b) => a + b, 0);
+    return total >= MIN_SPEAKER_LINES ? new Set([...counts].filter(([, n]) => n >= 2).map(([name]) => name)) : new Set();
+  }
+
   // "이름: 대사", "이름(속삭이며): 대사", 시나리오식 "이름\n대사", 희곡식 "이름 대사" 형식을 모두 지원
+  // 영어: "NAME: line", 대문자 이름 줄 아래 여러 줄 대사(시나리오), "NAME. line"(희곡)
   function parseScript(text) {
     const lines = String(text || '').replace(/\r/g, '').split('\n');
     const spokenNames = findSpokenNames(lines);
+    const capsDotNames = findCapsDotNames(lines);
+    let continuing = false;  // 영어 시나리오: 빈 줄이 나올 때까지 다음 줄도 같은 대사
     // 희곡식('이름 대사')이나 '[이름] 대사'로 쓴 대본이면 제목·배역표 줄을 시나리오식 이름 줄로 보지 않음
     const bracketSpeakers = lines.filter((l) => { const m = BRACKET_LINE_RE.exec(l.trim()); return m && !STAGE_TAGS.test(m[1].trim()); }).length;
     const noStandaloneNames = spokenNames.size > 0 || bracketSpeakers >= MIN_SPEAKER_LINES;
@@ -69,11 +105,27 @@
 
     lines.forEach((raw) => {
       const line = raw.trim();
-      if (!line) { pendingName = null; return; }
+      if (!line) { pendingName = null; continuing = false; return; }
 
       if (SCENE_RE.test(line)) {
         scene = line;
         items.push({ type: 'scene', text: line, scene });
+        pendingName = null;
+        continuing = false;
+        return;
+      }
+      if (continuing) {
+        if (!isCue(line) && !TRANSITION_RE.test(line)) {
+          // 이어지는 대사 줄은 붙이고, 중간의 "(beat)" 같은 괄호 줄은 대사 속 지문으로 넣음
+          const last = items[items.length - 1];
+          const add = DIRECTION_RE.test(line) ? `(${stripBrackets(line)})` : line;
+          items[items.length - 1] = { ...last, text: `${last.text} ${add}`.trim() };
+          return;
+        }
+        continuing = false;
+      }
+      if (TRANSITION_RE.test(line)) {
+        items.push({ type: 'direction', text: line, scene });
         pendingName = null;
         return;
       }
@@ -96,9 +148,10 @@
         return;
       }
       if (pendingName) {
-        if (DIRECTION_RE.test(line)) { pendingName.note = stripBrackets(line); return; }
+        if (DIRECTION_RE.test(line)) { pendingName = { ...pendingName, note: stripBrackets(line) }; return; }
         const { text: speech, note } = splitNote(line);
         items.push({ type: 'line', character: pendingName.name, text: speech, note: joinNotes(pendingName.note, note), scene });
+        continuing = !!pendingName.multiline;
         pendingName = null;
         return;
       }
@@ -108,6 +161,14 @@
         items.push({ type: 'line', character: spoken[1], text: speech, note: joinNotes('', note), scene });
         return;
       }
+      const capsDot = CAPS_DOT_RE.exec(line);
+      if (capsDot && capsDotNames.has(capsDot[1])) {
+        const { text: speech, note } = splitNote(capsDot[2]);
+        items.push({ type: 'line', character: capsDot[1], text: speech, note: joinNotes('', note), scene });
+        return;
+      }
+      const cue = isCue(line);
+      if (cue) { pendingName = { name: cue, note: '', multiline: true }; return; }
       if (!noStandaloneNames && isStandaloneName(line)) { pendingName = { name: line, note: '' }; return; }
       items.push({ type: 'direction', text: line, scene });
     });
@@ -226,6 +287,21 @@
     return String(s || '').toLowerCase().replace(/\([^)]*\)/g, '').replace(/[^\p{L}\p{N}]/gu, '');
   }
 
+  // 영어 축약형을 풀어 씀: 대본은 "I am", 인식기는 "I'm"으로 적어도 같은 말로 봄 (양쪽에 똑같이 적용)
+  const CONTRACTIONS = [
+    [/\bwon't\b/g, 'will not'], [/\bcan't\b/g, 'can not'], [/\bcannot\b/g, 'can not'], [/n't\b/g, ' not'],
+    [/\blet's\b/g, 'let us'], [/'m\b/g, ' am'], [/'re\b/g, ' are'], [/'ve\b/g, ' have'], [/'ll\b/g, ' will'],
+    [/'d\b/g, ' would'], [/'s\b/g, ' is'],
+  ];
+  function expandContractions(s) {
+    const t = String(s || '').toLowerCase().replace(/[’‘]/g, "'");
+    return /[a-z]'/.test(t) || /cannot/.test(t) ? CONTRACTIONS.reduce((acc, [re, to]) => acc.replace(re, to), t) : t;
+  }
+
+  // 채점용 정규화: 축약형을 푼 뒤 띄어쓰기·문장부호를 없앰
+  const canonical = (s) => normalize(expandContractions(s));
+  const isEnglishText = (s) => !/[가-힣]/.test(s) && /[a-z]/i.test(s);
+
   function levenshtein(a, b) {
     if (a === b) return 0;
     if (!a.length) return b.length;
@@ -295,8 +371,32 @@
   // 정규화된 문장의 숫자를 한자어·고유어 읽기로 바꾼 후보들 (숫자가 없으면 원문 하나)
   // 숫자는 12자리(천억)까지 한 덩어리로 읽음. 그보다 긴 숫자열은 끊어 읽어 무한 재귀·Infinity를 막음
   const DIGIT_RUN = /\d{1,12}/g;
+
+  // 영어 숫자 읽기: 20 → twenty, 101 → one hundred one (and를 넣어 읽는 경우도 후보로)
+  const EN_ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve',
+    'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+  const EN_TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+  const EN_SCALES = [[1e9, 'billion'], [1e6, 'million'], [1e3, 'thousand']];
+  function englishNumber(n, and = '') {
+    if (n < 20) return EN_ONES[n];
+    if (n < 100) return EN_TENS[Math.floor(n / 10)] + (n % 10 ? EN_ONES[n % 10] : '');
+    if (n < 1000) return EN_ONES[Math.floor(n / 100)] + 'hundred' + (n % 100 ? and + englishNumber(n % 100, and) : '');
+    const [scale, name] = EN_SCALES.find(([s]) => n >= s);
+    return englishNumber(Math.floor(n / scale), and) + name + (n % scale ? englishNumber(n % scale, and) : '');
+  }
+
+  function englishReadings(s) {
+    const plain = s.replace(DIGIT_RUN, (d) => englishNumber(Number(d)));
+    const withAnd = s.replace(DIGIT_RUN, (d) => englishNumber(Number(d), 'and'));
+    // 연도처럼 두 자리씩 읽기: 1999 → nineteen ninety nine
+    const paired = s.replace(DIGIT_RUN, (d) => (d.length === 4 && Number(d) % 100 >= 10 && d[0] !== '0'
+      ? englishNumber(Number(d.slice(0, 2))) + englishNumber(Number(d.slice(2))) : englishNumber(Number(d))));
+    return [...new Set([plain, withAnd, paired])];
+  }
+
   function readings(s) {
     if (!/\d/.test(s)) return [s];
+    if (isEnglishText(s)) return englishReadings(s);
     const sino = s.replace(DIGIT_RUN, (d) => sinoNumber(Number(d)));
     const native = s.replace(DIGIT_RUN, (d) => (Number(d) >= 1 && Number(d) <= NATIVE_MAX ? nativeNumber(Number(d)) : sinoNumber(Number(d))));
     return sino === native ? [sino] : [sino, native];
@@ -318,9 +418,9 @@
 
   // 0~1, 띄어쓰기·문장부호를 무시하고 자모 단위로 비교한 일치율. 숫자는 읽는 방식 차이를 무시
   function similarity(expected, spoken) {
-    const exp = normalize(expected);
+    const exp = canonical(expected);
     const score = Array.from(exp).length <= SHORT_LINE_SYLLABLES ? syllableSimilarity : jamoSimilarity;
-    return bestOf(readings(exp), readings(normalize(spoken)), score);
+    return bestOf(readings(exp), readings(canonical(spoken)), score);
   }
 
   const WORD_MATCH = 0.8;  // 단어 표시에서 '맞음'으로 볼 자모 일치율 (빨라↔발라 = 0.8)
@@ -340,9 +440,9 @@
 
   // 단어별 맞음/틀림 표시용
   function wordDiff(expected, spoken) {
-    const said = readings(normalize(spoken));
+    const said = readings(canonical(spoken));
     return String(expected || '').split(/\s+/).filter(Boolean).map((w) => {
-      const n = normalize(w);
+      const n = canonical(w);
       return { word: w, ok: !n || readings(n).some((r) => said.some((s) => containsSimilar(s, r))) };
     });
   }
@@ -363,8 +463,12 @@
   const SILENCE_PER_CHAR_MS = 30;    // 12글자를 넘는 글자마다
   const SILENCE_PAUSE_MS = 700;      // '...', '…', '—' 가 있으면
   const SILENCE_MAX_MS = 3200;
+  // 영어 글자는 한글 음절보다 짧게 발음되므로 0.4글자로 셈 (영어 대사에서 지나치게 오래 기다리지 않게)
+  const LATIN_CHAR_WEIGHT = 0.4;
   function silenceForLine(text) {
-    const chars = normalize(text).length;
+    const n = normalize(text);
+    const latin = (n.match(/[a-z]/g) || []).length;
+    const chars = n.length - latin + latin * LATIN_CHAR_WEIGHT;
     const pause = /\.\.\.|…|—/.test(String(text || '')) ? SILENCE_PAUSE_MS : 0;
     return Math.min(SILENCE_MAX_MS, SILENCE_BASE_MS + Math.max(0, chars - 12) * SILENCE_PER_CHAR_MS + pause);
   }
@@ -373,35 +477,37 @@
     return String(text || '').split(/\s+/).map((w) => w.replace(/^([^\p{L}\p{N}]*[\p{L}\p{N}])[\s\S]*$/u, '$1…')).join(' ');
   }
 
+  // 한국어 낱말은 글자 그대로, 영어 낱말(en)은 단어 앞부분으로 찾음 ('angr' → angry·angrily, 'sea'가 'search'에 걸리지 않게)
   const MOODS = [
-    { key: 'night', words: ['밤', '새벽', '자정', '어둠', '달빛', 'night'], label: '밤', emoji: '🌙', bg: ['#0f1734', '#2a2f5c'] },
-    { key: 'rain', words: ['비가', '비 내리', '빗', '폭우', '우산', '장마', 'rain'], label: '비', emoji: '🌧️', bg: ['#2c3e50', '#5d7387'] },
-    { key: 'sea', words: ['바다', '해변', '파도', '항구', '배 위'], label: '바다', emoji: '🌊', bg: ['#0b4f6c', '#3fa7c9'] },
-    { key: 'cafe', words: ['카페', '커피', '찻집'], label: '카페', emoji: '☕', bg: ['#4b3226', '#a9774f'] },
-    { key: 'hospital', words: ['병원', '병실', '응급실', '수술'], label: '병원', emoji: '🏥', bg: ['#cfe3e8', '#7fa7b3'] },
-    { key: 'school', words: ['학교', '교실', '복도', '운동장', '교무실'], label: '학교', emoji: '🏫', bg: ['#4e7d3a', '#a6c46a'] },
-    { key: 'office', words: ['사무실', '회의실', '회사', '오피스'], label: '사무실', emoji: '🏢', bg: ['#38404a', '#7b8794'] },
-    { key: 'home', words: ['거실', '부엌', '주방', '방 안', '집', '침실'], label: '집', emoji: '🏠', bg: ['#6b4b3e', '#c99a6d'] },
-    { key: 'street', words: ['거리', '골목', '길가', '도로', '횡단보도'], label: '거리', emoji: '🏙️', bg: ['#2f3542', '#747d8c'] },
-    { key: 'snow', words: ['눈이', '눈 내리', '설원', '겨울'], label: '겨울', emoji: '❄️', bg: ['#a4b9cc', '#e6eef5'] },
+    { key: 'night', words: ['밤', '새벽', '자정', '어둠', '달빛', 'night'], en: ['night', 'midnight', 'dark'], label: '밤', emoji: '🌙', bg: ['#0f1734', '#2a2f5c'] },
+    { key: 'rain', words: ['비가', '비 내리', '빗', '폭우', '우산', '장마', 'rain'], en: ['rain', 'storm', 'umbrella', 'downpour'], label: '비', emoji: '🌧️', bg: ['#2c3e50', '#5d7387'] },
+    { key: 'sea', words: ['바다', '해변', '파도', '항구', '배 위'], en: ['sea', 'beach', 'ocean', 'shore', 'harbor', 'pier'], label: '바다', emoji: '🌊', bg: ['#0b4f6c', '#3fa7c9'] },
+    { key: 'cafe', words: ['카페', '커피', '찻집'], en: ['cafe', 'café', 'coffee', 'diner'], label: '카페', emoji: '☕', bg: ['#4b3226', '#a9774f'] },
+    { key: 'hospital', words: ['병원', '병실', '응급실', '수술'], en: ['hospital', 'emergency room', 'ward', 'clinic'], label: '병원', emoji: '🏥', bg: ['#cfe3e8', '#7fa7b3'] },
+    { key: 'school', words: ['학교', '교실', '복도', '운동장', '교무실'], en: ['school', 'classroom', 'hallway', 'campus'], label: '학교', emoji: '🏫', bg: ['#4e7d3a', '#a6c46a'] },
+    { key: 'office', words: ['사무실', '회의실', '회사', '오피스'], en: ['office', 'meeting room', 'conference room'], label: '사무실', emoji: '🏢', bg: ['#38404a', '#7b8794'] },
+    { key: 'home', words: ['거실', '부엌', '주방', '방 안', '집', '침실'], en: ['kitchen', 'living room', 'bedroom', 'apartment', 'house'], label: '집', emoji: '🏠', bg: ['#6b4b3e', '#c99a6d'] },
+    { key: 'street', words: ['거리', '골목', '길가', '도로', '횡단보도'], en: ['street', 'alley', 'road', 'sidewalk', 'crosswalk'], label: '거리', emoji: '🏙️', bg: ['#2f3542', '#747d8c'] },
+    { key: 'snow', words: ['눈이', '눈 내리', '설원', '겨울'], en: ['snow', 'winter', 'blizzard'], label: '겨울', emoji: '❄️', bg: ['#a4b9cc', '#e6eef5'] },
   ];
   const EMOTIONS = [
-    { key: 'anger', words: ['화가', '화내', '화난', '분노', '소리치', '버럭', '짜증', '고함'], label: '분노', color: '#e74c3c' },
-    { key: 'sad', words: ['울며', '울먹', '울음', '눈물', '슬프', '흐느', '떨리는'], label: '슬픔', color: '#5b7db1' },
-    { key: 'joy', words: ['웃', '기뻐', '신나', '활짝'], label: '기쁨', color: '#f1c40f' },
-    { key: 'whisper', words: ['속삭', '작게', '조용히', '귓속말'], label: '속삭임', color: '#9b59b6' },
-    { key: 'fear', words: ['떨며', '겁', '두려', '놀라'], label: '긴장', color: '#16a085' },
+    { key: 'anger', words: ['화가', '화내', '화난', '분노', '소리치', '버럭', '짜증', '고함'], en: ['angr', 'furious', 'shout', 'yell', 'scream', 'snap'], label: '분노', color: '#e74c3c' },
+    { key: 'sad', words: ['울며', '울먹', '울음', '눈물', '슬프', '흐느', '떨리는'], en: ['cry', 'cries', 'tear', 'sob', 'weep', 'sad'], label: '슬픔', color: '#5b7db1' },
+    { key: 'joy', words: ['웃', '기뻐', '신나', '활짝'], en: ['laugh', 'smil', 'grin', 'happ', 'excited', 'cheerful'], label: '기쁨', color: '#f1c40f' },
+    { key: 'whisper', words: ['속삭', '작게', '조용히', '귓속말'], en: ['whisper', 'quiet', 'soft', 'under her breath', 'under his breath'], label: '속삭임', color: '#9b59b6' },
+    { key: 'fear', words: ['떨며', '겁', '두려', '놀라'], en: ['trembl', 'scared', 'afraid', 'nervous', 'panic', 'shaking'], label: '긴장', color: '#16a085' },
   ];
 
   function findByWords(list, text) {
     const t = String(text || '');
-    return list.find((m) => m.words.some((w) => t.includes(w))) || null;
+    const lower = t.toLowerCase();
+    return list.find((m) => m.words.some((w) => t.includes(w)) || (m.en || []).some((w) => new RegExp('\\b' + w).test(lower))) || null;
   }
 
   function detectMood(text) { return findByWords(MOODS, text); }
   function detectEmotion(text) { return findByWords(EMOTIONS, text); }
 
-  const api = { parseScript, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, firstLetterHint, detectMood, detectEmotion, normalize };
+  const api = { parseScript, detectLanguage, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, firstLetterHint, detectMood, detectEmotion, normalize };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ScriptKit = api;
 })(this);

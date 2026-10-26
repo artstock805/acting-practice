@@ -248,3 +248,14 @@ test('IPv6 clients are grouped by their /64 so rotating addresses does not dodge
   assert.notStrictEqual(clientIp(req('2001:db8:1:2::1')), clientIp(req('2001:db8:1:3::1')));
   assert.strictEqual(clientIp(req('203.0.113.7')), '203.0.113.7');
 });
+
+test('the speech language comes from X-Speech-Lang and only Korean or English are allowed', async () => {
+  const langs = [];
+  await withServer({ transcribe: async (_wav, _info, _hint, lang) => { langs.push(lang); return { text: '', segments: [] }; } }, async (base) => {
+    for (const lang of ['en-US', 'ko-KR', 'fr-FR', undefined]) {
+      const headers = { 'Content-Type': 'audio/wav', ...(lang ? { 'X-Speech-Lang': lang } : {}) };
+      assert.strictEqual((await fetch(`${base}/api/stt`, { method: 'POST', headers, body: wavOf(0.5) })).status, 200);
+    }
+  });
+  assert.deepStrictEqual(langs, ['en-US', 'ko-KR', 'ko-KR', 'ko-KR']);
+});

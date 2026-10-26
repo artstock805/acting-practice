@@ -50,3 +50,13 @@ test('Google voices clash only with the same Google voice at a similar speed', (
   assert.deepStrictEqual([...V.findVoiceClashes(cast)].sort(), ['A', 'B', 'D', 'E']);
   assert.strictEqual(V.resolveVoice(cast.C).cloudVoice, 'ko-KR-Chirp3-HD-Puck');
 });
+
+test('the voice catalog offers the same voices in Korean and English', () => {
+  const VC = require('./voicecatalog.js');
+  assert.strictEqual(VC.castable('en').length, VC.castable('ko').length);
+  assert.ok(VC.castable('en').every((v) => v.id.startsWith('en-US-')));
+  assert.strictEqual(VC.narratorVoiceId('en'), 'en-US-Chirp3-HD-Rasalgethi');
+  assert.strictEqual(VC.toLanguage('ko-KR-Chirp3-HD-Kore', 'en'), 'en-US-Chirp3-HD-Kore');
+  assert.strictEqual(VC.languageOf('en-US-Chirp3-HD-Kore'), 'en-US');
+  assert.ok(VC.isCloudVoice('en-US-Chirp3-HD-Puck') && VC.isCloudVoice('ko-KR-Chirp3-HD-Puck') && !VC.isCloudVoice('fr-FR-Chirp3-HD-Puck'));
+});

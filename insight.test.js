@@ -37,7 +37,7 @@ test('POST /api/insight returns the play, character and relationship analysis', 
     assert.strictEqual(body.play.super_objective, '떠나기 전에 서로의 진심을 확인하고 싶다');
     assert.strictEqual(body.characters.length, 1);
   });
-  assert.deepStrictEqual(seen, [{ script: SCRIPT, characters: ['민수', '지연'] }]);
+  assert.deepStrictEqual(seen, [{ script: SCRIPT, characters: ['민수', '지연'], lang: 'ko' }]);
 });
 
 test('without an API key the insight endpoint says it is not set up', async () => {
@@ -72,4 +72,9 @@ test('insightWithClaude asks for structured output and parses it', async () => {
   const out = await insightWithClaude({ script: SCRIPT, characters: ['민수', '지연'] }, client);
   assert.strictEqual(request.output_config.format.type, 'json_schema');
   assert.strictEqual(out.relationships.length, 1);
+});
+
+test('the insight prompt for an English script keeps quotes in English', () => {
+  const { system } = buildInsightPrompt('MAYA: Hi.', ['MAYA'], 'en');
+  assert.match(system, /영어 원문/);
 });

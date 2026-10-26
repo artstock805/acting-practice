@@ -2,7 +2,7 @@
 // voicecatalog.js의 목소리 중 어울리는 것을 추천받음. '/api/analyze'는 사용자가 버튼을 눌렀을 때만 불림.
 // API 키는 Secret Manager → 환경 변수 ANTHROPIC_API_KEY로만 받음 (키가 없으면 503으로 '설정 안 됨' 안내)
 'use strict';
-const { CASTABLE, voiceLabel, isCloudVoice, clampRate } = require('./voicecatalog.js');
+const { castable, voiceLabel, isCloudVoice, clampRate, languageOf, localeOf } = require('./voicecatalog.js');
 
 const MODEL = 'claude-opus-5-5';
 const MAX_SCRIPT_CHARS = 150_000;       // 장편 대본도 들어가는 크기. 넘으면 잘라 보내지 않고 거절함
@@ -17,7 +17,8 @@ const USED_UP = '오늘 할 수 있는 AI 분석 횟수를 다 썼습니다. 내
 const CLAUDE_TIMEOUT_MS = 120_000;
 const AGES = ['어린이', '10대', '20대', '30대', '40대', '50대', '60대 이상', '알 수 없음'];
 
-const SCHEMA = {
+// 대본 언어의 목소리만 고를 수 있게 (영어 대본 → en-US 목소리)
+const schemaFor = (lang) => ({
   type: 'object',
   properties: {
     characters: {
@@ -30,7 +31,7 @@ const SCHEMA = {
           age: { type: 'string', enum: AGES },
           personality: { type: 'string' },
           speech: { type: 'string' },
-          voice: { type: 'string', enum: CASTABLE.map((v) => v.id) },
+          voice: { type: 'string', enum: castable(lang).map((v) => v.id) },
           rate: { type: 'number' },
           reason: { type: 'string' },
         },
@@ -41,12 +42,16 @@ const SCHEMA = {
   },
   required: ['characters'],
   additionalProperties: false,
-};
+});
 
-function buildPrompt(script, characters) {
-  const catalog = CASTABLE.map((v) => `- ${v.id}: ${voiceLabel(v)} (평균 음높이 ${v.pitch}Hz)`).join('\n');
+// 영어 대본일 때 덧붙이는 지시 (설명은 한국어로, 사용자 화면이 한국어이므로)
+const ENGLISH_NOTE = '이 대본은 영어입니다. 이름·호칭(Mr., Mrs., Mom, Sir 등)·격식체와 구어체·속어에서 인물을 추론하고, 설명은 한국어로 쓰세요.';
+
+function buildPrompt(script, characters, lang = 'ko') {
+  const catalog = castable(lang).map((v) => `- ${v.id}: ${voiceLabel(v)} (평균 음높이 ${v.pitch}Hz)`).join('\n');
   const system = [
-    '당신은 한국어 라디오 드라마의 캐스팅 디렉터입니다. 배우가 혼자 대사를 연습할 때 상대역을 읽어 줄 합성 음성을 고릅니다.',
+    '당신은 라디오 드라마의 캐스팅 디렉터입니다. 배우가 혼자 대사를 연습할 때 상대역을 읽어 줄 합성 음성을 고릅니다.',
+    ...(lang === 'en' ? [ENGLISH_NOTE] : []),
     '대본을 읽고 배역마다 성별, 나이대, 성격, 말투를 대사·지문·호칭(예: 엄마, 여사, 사장님, 형)·반말과 존댓말에서 추론하세요.',
     '그리고 아래 목록에서 그 인물에 가장 어울리는 목소리를 하나 고르세요. 목록에 아이 목소리는 없으니 어린이는 가장 높고 앳된 목소리로 하세요.',
     '대사가 많은 인물끼리는 서로 다른 목소리를 주어 듣는 사람이 구별할 수 있게 하고, 목소리가 모자라면 대사가 적은 인물끼리 겹치게 하세요.',
@@ -61,7 +66,7 @@ function buildPrompt(script, characters) {
 }
 
 // Claude 답에서 요청한 배역·목록에 있는 목소리만 남기고 속도는 허용 범위로 맞춤
-function normalizeCasting(list, characters) {
+function normalizeCasting(list, characters, lang = 'ko') {
   const wanted = new Set(characters);
   const text = (v) => (typeof v === 'string' ? v.slice(0, 300) : '');
   return (Array.isArray(list) ? list : [])
@@ -72,20 +77,20 @@ function normalizeCasting(list, characters) {
       age: AGES.includes(c.age) ? c.age : '알 수 없음',
       personality: text(c.personality),
       speech: text(c.speech),
-      voice: isCloudVoice(c.voice) ? c.voice : null,
+      voice: isCloudVoice(c.voice) && languageOf(c.voice) === localeOf(lang) ? c.voice : null,
       rate: Math.round(clampRate(c.rate) * 100) / 100,
       reason: text(c.reason),
     }));
 }
 
-async function analyzeWithClaude({ script, characters }, client) {
-  const { system, user } = buildPrompt(script, characters);
+async function analyzeWithClaude({ script, characters, lang = 'ko' }, client) {
+  const { system, user } = buildPrompt(script, characters, lang);
   const response = await client.beta.messages.create({
     model: MODEL,
     max_tokens: 16000,
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',   // 안전 분류기가 거절하면 서버가 다른 모델로 다시 시도
-    output_config: { effort: 'medium', format: { type: 'json_schema', schema: SCHEMA } },
+    output_config: { effort: 'medium', format: { type: 'json_schema', schema: schemaFor(lang) } },
     system,
     messages: [{ role: 'user', content: user }],
   });
@@ -93,7 +98,7 @@ async function analyzeWithClaude({ script, characters }, client) {
   if (response.stop_reason === 'max_tokens') throw new Error('claude max_tokens');
   const block = response.content.find((b) => b.type === 'text');
   if (!block) throw new Error('claude returned no text');
-  return normalizeCasting(JSON.parse(block.text).characters, characters);
+  return normalizeCasting(JSON.parse(block.text).characters, characters, lang);
 }
 
 // 키가 있을 때만 SDK를 불러 Claude 호출 함수를 만듦 (테스트·키 없는 환경에서는 SDK가 필요 없음)
@@ -119,7 +124,7 @@ function parseRequest(raw) {
   const names = Array.isArray(body.characters) ? [...new Set(body.characters.filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim().slice(0, 40)))] : [];
   if (!names.length) return { status: 400, error: '분석할 배역이 없습니다.' };
   if (names.length > MAX_CHARACTERS) return { status: 400, error: `배역이 너무 많습니다(${MAX_CHARACTERS}명까지).` };
-  return { script, characters: names };
+  return { script, characters: names, lang: body.lang === 'en' ? 'en' : 'ko' };
 }
 
 // toBody: 분석 결과를 응답 본문으로 (배역 분석은 { characters }, 초목표 분석은 결과 그대로)
@@ -156,4 +161,4 @@ function createAnalyzeHandler({ analyze, readBody, sendJson, clientIp, createRat
   };
 }
 
-module.exports = { createAnalyzeHandler, createClaudeClient, createClaudeAnalyzer, MODEL, analyzeWithClaude, buildPrompt, normalizeCasting, MAX_SCRIPT_CHARS };
+module.exports = { ENGLISH_NOTE, createAnalyzeHandler, createClaudeClient, createClaudeAnalyzer, MODEL, analyzeWithClaude, buildPrompt, normalizeCasting, MAX_SCRIPT_CHARS };

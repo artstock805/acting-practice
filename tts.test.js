@@ -96,3 +96,13 @@ test('a failed synthesis does not use up the daily budget', async () => {
     assert.strictEqual((await post(base, { text: '가나다', voice: VOICE })).status, 200);
   });
 });
+
+test('English Google voices are accepted and synthesized in English', async () => {
+  const calls = [];
+  const synthesize = async (args) => { calls.push(args); return Buffer.from('x'); };
+  await withServer({ synthesize }, async (base) => {
+    assert.strictEqual((await post(base, { text: 'You are still here.', voice: 'en-US-Chirp3-HD-Kore' })).status, 200);
+    assert.strictEqual((await post(base, { text: 'Bonjour', voice: 'fr-FR-Chirp3-HD-Kore' })).status, 400);
+  });
+  assert.strictEqual(calls[0].voice, 'en-US-Chirp3-HD-Kore');
+});

@@ -12,9 +12,11 @@
   const CT = window.CloudTTS;
   const IV = window.InsightView;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
-  const CLOUD_NARRATOR = { ...NARRATOR_VOICE, cloudVoice: VC.NARRATOR_VOICE_ID };
+  // 대본 언어: state.lang = 'ko' | 'en' (자동 판별 또는 선택), state.langChoice = 'auto' | 'ko' | 'en'
+  const scriptLang = () => (state.lang === 'en' ? 'en' : 'ko');
+  const speechLocale = () => VC.localeOf(scriptLang());
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v28';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v29';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -60,11 +62,20 @@
   // ---------- 1. 대본 ----------
   function parseAndGo() {
     const text = $('script-input').value;
+    const choice = $('opt-lang').value;
+    const lang = choice === 'auto' ? K.detectLanguage(text) : choice;
+    update({ lang, langChoice: choice });
+    S.setLanguage(VC.localeOf(lang));
+    showDetectedLanguage();
     const items = K.parseScript(text);
     const chars = K.listCharacters(items);
-    if (!chars.length) { alert('인물 대사를 찾지 못했습니다. "이름: 대사" 형식인지 확인해 주세요.'); return; }
+    if (!chars.length) { alert('인물 대사를 찾지 못했습니다. "이름: 대사" 형식(영어는 "NAME: line"이나 대문자 이름 줄)인지 확인해 주세요.'); return; }
     const cast = {};
-    chars.forEach((c, i) => { cast[c.name] = state.cast[c.name] || { mine: i === 0 && !myNames().length, isNew: true }; });
+    chars.forEach((c, i) => {
+      const kept = state.cast[c.name];
+      // 같은 이름이 남아 있어도 Google 목소리는 대본 언어 쪽 같은 목소리로 바꿔 줌
+      cast[c.name] = kept ? { ...kept, ...(kept.cloudVoice ? { cloudVoice: VC.toLanguage(kept.cloudVoice, lang) } : {}) } : { mine: i === 0 && !myNames().length, isNew: true };
+    });
     // 새로 나온 상대 배역에게는 서로 다른 목소리를 자동 배분 (기존 인물 설정은 유지)
     const newOthers = chars.map((c) => c.name).filter((n) => cast[n].isNew && !cast[n].mine);
     const assigned = distributeAllVoices(newOthers, cast);
@@ -124,7 +135,8 @@
 
   // AI 분석으로 성별을 알면 같은 성별 목소리를, 모르면 남녀를 번갈아 줌. 높고 낮은 목소리를 섞어 서로 구별되게 함
   function distributeCloudVoices(names, cast) {
-    const pools = { male: interleaveByPitch(VC.CASTABLE.filter((v) => v.gender === 'male')), female: interleaveByPitch(VC.CASTABLE.filter((v) => v.gender === 'female')) };
+    const voices = VC.castable(scriptLang());
+    const pools = { male: interleaveByPitch(voices.filter((v) => v.gender === 'male')), female: interleaveByPitch(voices.filter((v) => v.gender === 'female')) };
     const used = { male: 0, female: 0 };
     let alternate = 0;
     return Object.fromEntries(names.map((name) => {
@@ -164,7 +176,7 @@
       body.append(tr);
     });
     $('voice-count').textContent = CT.available
-      ? 'Google 목소리 ' + VC.CASTABLE.length + '가지 중에서 고를 수 있어요. AI 분석을 누르면 배역에 맞게 골라 줍니다.'
+      ? `${scriptLang() === 'en' ? '영어' : '한국어'} Google 목소리 ${VC.castable(scriptLang()).length}가지 중에서 고를 수 있어요. AI 분석을 누르면 배역에 맞게 골라 줍니다.`
       : voices.length > 1
       ? `이 브라우저의 한국어 음성 ${voices.length}개를 나눠 씁니다.`
       : '이 브라우저에는 한국어 음성이 1개뿐이라 높낮이·속도로 구분합니다. Edge에서 열면 음성이 더 많습니다.';
@@ -188,7 +200,7 @@
     const voice = el('select', { title: '음성' });
     if (CT.available) {
       const cloud = el('optgroup', { label: 'Google 목소리 (자연스러움)' });
-      VC.CASTABLE.forEach((x) => cloud.append(el('option', { value: 'cloud:' + x.id, textContent: VC.voiceLabel(x), selected: v.cloudVoice === x.id })));
+      VC.castable(scriptLang()).forEach((x) => cloud.append(el('option', { value: 'cloud:' + x.id, textContent: VC.voiceLabel(x), selected: v.cloudVoice === x.id })));
       voice.append(cloud);
     }
     const device = el('optgroup', { label: '이 기기의 음성' });
@@ -245,7 +257,7 @@
     btn.disabled = true;
     setAiStatus('🤖 대본을 읽고 배역을 분석하는 중… (긴 대본은 30초~1분)');
     try {
-      const res = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: state.text, characters: names }) });
+      const res = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: state.text, characters: names, lang: scriptLang() }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `분석 실패 (${res.status})`);
       const cast = { ...state.cast };
@@ -326,7 +338,8 @@
 
   // 배역 중 누구라도 Google 목소리를 쓰면 해설도 Google 목소리로 (음질을 맞춤)
   function narratorVoice() {
-    return CT.available && Object.values(state.cast).some((c) => c.cloudVoice && !c.mine) ? CLOUD_NARRATOR : NARRATOR_VOICE;
+    return CT.available && Object.values(state.cast).some((c) => c.cloudVoice && !c.mine)
+      ? { ...NARRATOR_VOICE, cloudVoice: VC.narratorVoiceId(scriptLang()) } : NARRATOR_VOICE;
   }
 
   function voiceCfg(name, item) {
@@ -424,7 +437,7 @@
     setInsightTabMark('⏳');
     let finished = '';
     try {
-      const res = await fetch('/api/insight', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script, characters: names }) });
+      const res = await fetch('/api/insight', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script, characters: names, lang: scriptLang() }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `분석 실패 (${res.status})`);
       if (state.text !== script) throw new Error('분석하는 사이에 대본이 바뀌어 이 결과는 쓰지 않았어요. 다시 눌러 주세요.');
@@ -568,6 +581,7 @@
   async function listenViaServer(item, token, threshold) {
     setMic('⏺ 녹음 중 · 듣고 있어요… 대사를 말해 주세요.', true);
     listener = C.listen({
+      lang: speechLocale(),
       hint: speechOf(item),
       silenceMs: K.silenceForLine(speechOf(item)),
       onPhase: (phase, ms) => {
@@ -929,7 +943,8 @@
     try {
       const { text } = await FI.extractScriptText({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
       $('script-input').value = text;
-      setImportStatus(`✅ ${file.name}에서 ${text.split('\n').length}줄을 불러왔어요. 내용을 확인하고 '대본 분석'을 누르세요.`);
+      const detected = K.detectLanguage(text) === 'en' ? ' (영어 대본으로 보여요)' : '';
+      setImportStatus(`✅ ${file.name}에서 ${text.split('\n').length}줄을 불러왔어요${detected}. 내용을 확인하고 '대본 분석'을 누르세요.`);
     } catch (err) {
       const message = err instanceof FI.ImportError ? err.message : `파일을 읽지 못했습니다. (${err.message})`;
       setImportStatus('⚠ ' + message, true);
@@ -984,7 +999,10 @@
   function bindEvents() {
     const openView = { practice: goPractice, insight: goInsight };
     document.querySelectorAll('.tab').forEach((t) => { t.onclick = () => (openView[t.dataset.view] || (() => showView(t.dataset.view)))(); });
-    $('btn-sample').onclick = () => { $('script-input').value = window.SAMPLE_SCRIPT; };
+    $('btn-sample').onclick = () => { $('script-input').value = window.SAMPLE_SCRIPT; showDetectedLanguage(); };
+    $('btn-sample-en').onclick = () => { $('script-input').value = window.SAMPLE_SCRIPT_EN; showDetectedLanguage(); };
+    $('opt-lang').onchange = showDetectedLanguage;
+    $('script-input').addEventListener('input', showDetectedLanguage);
     bindFilePicker();
     $('btn-parse').onclick = parseAndGo;
     $('btn-to-practice').onclick = goPractice;
@@ -1092,8 +1110,18 @@
     };
   }
 
+  // '자동 감지'일 때 지금 대본이 어떤 언어로 보이는지 옆에 알려 줌
+  function showDetectedLanguage() {
+    const choice = $('opt-lang').value;
+    const text = $('script-input').value;
+    $('lang-detected').textContent = choice === 'auto' && text.trim() ? `→ ${K.detectLanguage(text) === 'en' ? 'English' : '한국어'}` : '';
+  }
+
   function init() {
     $('script-input').value = state.text || '';
+    $('opt-lang').value = state.langChoice || 'auto';
+    S.setLanguage(speechLocale());
+    showDetectedLanguage();
     $('app-version').textContent = `앱 버전 ${APP_VERSION}`;
     bindEvents();
     checkPickerRestart();

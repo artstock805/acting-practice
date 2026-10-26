@@ -46,6 +46,21 @@ S#1. 카페 / 밤          ← 장면 제목 (S#1, 씬 1, INT. 로 시작)
 상범 전 아직 총각입니다.  ← 희곡식: 이름 + 띄어쓰기 + 대사 (줄 앞에 자주 나오는 이름을 자동으로 찾음)
 ```
 
+### 영어 대본
+
+**English example** 버튼으로 영어 예시 대본을 불러올 수 있습니다. 대본 언어는 **자동 감지**되고(옆에 → English 표시), 직접 고를 수도 있습니다.
+영어 대본이면 음성 인식·상대역 목소리·채점이 영어로 바뀝니다. (I'm과 I am, 20과 twenty는 같은 말로 채점)
+
+```
+INT. COFFEE SHOP - NIGHT     ← 장면 제목 (INT. / EXT. / SCENE 1)
+Rain beats on the glass.     ← 지문
+            MAYA             ← 시나리오: 대문자 이름 줄 (V.O.)·(CONT'D)는 떼고 인식
+    You kept the place       ← 대사 (빈 줄이 나올 때까지 이어짐)
+    exactly the same.
+DANIEL: Why are you here?    ← NAME: line
+NORA. I am leaving.          ← 희곡식 NAME. line
+```
+
 > 🔒 대본은 **내 브라우저 안에만** 저장되고 다른 곳으로 보내지 않습니다. 다음에 열어도 그대로 남아 있습니다.
 
 ---

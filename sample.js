@@ -21,3 +21,75 @@ S#2. 역 앞 거리 / 밤
 민수: 습관이야.
 지연(울먹이며): 그 습관 때문에 떠나기 싫어지잖아.
 `;
+
+// 영어 예시 대본 (이 앱을 위해 새로 쓴 장면, 시나리오 형식)
+window.SAMPLE_SCRIPT_EN = `INT. CORNER DINER - NIGHT
+
+Rain streaks the windows. Closing time. The place is empty except for JULIA (30s), who stares at a cold cup of coffee.
+
+SAM (30s) wipes down the counter.
+
+                    SAM
+          We close in ten minutes.
+
+                    JULIA
+               (not looking up)
+          I know. I just needed somewhere dry.
+
+                    SAM
+          You have an umbrella. It's right
+          there in your bag.
+
+                    JULIA
+          You always notice the wrong things.
+
+                    SAM
+          Three years, Julia. You show up
+          after three years and order coffee
+          you don't drink.
+
+                    JULIA
+               (angrily)
+          You're the one who stopped calling.
+
+                    SAM
+          That's not fair.
+               (beat)
+          Why are you here?
+
+                    JULIA
+          I'm leaving tomorrow. I wanted to
+          tell you in person.
+
+Silence. Only the rain.
+
+                    SAM
+          Where?
+
+                    JULIA
+          Far. This time I mean it.
+
+                    SAM
+               (after a long pause)
+          Let me walk you to the station.
+
+                    JULIA
+               (smiling)
+          It took you three years to say that.
+
+EXT. STREET - CONTINUOUS
+
+They share one umbrella. Sam holds it over her; his own shoulder is soaked.
+
+                    JULIA
+          You still do that. Keep yourself
+          out in the rain.
+
+                    SAM
+          Habit.
+
+                    JULIA
+               (in tears)
+          That habit is going to make it hard
+          to leave.
+`;
