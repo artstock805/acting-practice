@@ -36,7 +36,8 @@
   // hint: 말할 대사 (서버가 Google 인식에 힌트로 넘김) · silenceMs: 말이 끝났다고 볼 침묵 길이
   // promise → { text, segments, blob }   (말이 없었으면 text '', blob null). segments = 구간별 인식 후보들
   // diag: 실패 원인 표시용 { ctx, peak, threshold, outcome, uploadKB }
-  function listen({ onPhase, hint = '', silenceMs } = {}) {
+  // lang: 'ko-KR' | 'en-US' (대본 언어)
+  function listen({ onPhase, hint = '', silenceMs, lang = 'ko-KR' } = {}) {
     let stopped = false;
     let timer = null;
     let source = null;
@@ -65,7 +66,7 @@
       const blob = await R.stop();
       if (!blob || stopped) return resolveFn(EMPTY);
       if (onPhase) onPhase('upload');
-      resolveFn({ ...(await transcribe(blob, upload.signal, diag, hint)), blob });
+      resolveFn({ ...(await transcribe(blob, upload.signal, diag, hint, lang)), blob });
     })().catch((err) => {
       cleanup();
       R.release();  // 실패하면 마이크를 놓아야 휴대폰 내장 인식 등 다음 시도가 소리를 받음
@@ -125,12 +126,12 @@
     return ctx.state === 'running';
   }
 
-  async function transcribe(blob, signal, diag, hint) {
+  async function transcribe(blob, signal, diag, hint, lang) {
     const samples = await toMono16k(blob);
     if (samples.length < TARGET_RATE / 10) return { text: '', segments: [] };  // 0.1초도 안 되면 말이 없던 것
     const wav = A.encodeWav(samples, TARGET_RATE);
     diag.uploadKB = Math.round(wav.byteLength / 1024);
-    const headers = { 'Content-Type': 'audio/wav' };
+    const headers = { 'Content-Type': 'audio/wav', 'X-Speech-Lang': lang };
     // 글자 단위로 자름: 문자열 slice는 이모지(서로게이트 쌍)를 반으로 잘라 encodeURIComponent가 실패할 수 있음
     if (hint) headers['X-Line-Hint'] = encodeURIComponent(Array.from(hint).slice(0, MAX_HINT_CHARS).join(''));
     const res = await fetch('api/stt', { method: 'POST', headers, body: wav, signal });

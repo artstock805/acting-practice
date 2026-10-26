@@ -22,7 +22,7 @@ test('POST /api/analyze returns the casting for the requested characters', async
     assert.strictEqual(res.status, 200);
     assert.strictEqual((await res.json()).characters[0].voice, 'ko-KR-Chirp3-HD-Charon');
   });
-  assert.deepStrictEqual(seen, [{ script: SCRIPT, characters: ['민수', '지연'] }]);
+  assert.deepStrictEqual(seen, [{ script: SCRIPT, characters: ['민수', '지연'], lang: 'ko' }]);
 });
 
 test('missing script, no characters, too many characters and oversized scripts are rejected before calling Claude', async () => {
@@ -111,4 +111,22 @@ test('only a few analyses run at once; the rest get a busy answer', async () => 
     release();
     assert.strictEqual((await first).status, 200);
   });
+});
+
+test('English scripts get English voices and the English note in the prompt', async () => {
+  const seen = [];
+  const analyze = async (args) => { seen.push(args.lang); return []; };
+  await withServer({ analyze }, async (base) => {
+    await post(base, { script: 'MAYA: Hi.', characters: ['MAYA'], lang: 'en' });
+    await post(base, { script: 'MAYA: Hi.', characters: ['MAYA'], lang: 'fr' });
+  });
+  assert.deepStrictEqual(seen, ['en', 'ko']);
+  const { system } = buildPrompt('MAYA: Hi.', ['MAYA'], 'en');
+  assert.match(system, /en-US-Chirp3-HD-Kore/);
+  assert.doesNotMatch(system, /ko-KR-/);
+  assert.match(system, /영어/);
+  const out = normalizeCasting([
+    { name: 'MAYA', gender: 'female', age: '30대', personality: 'p', speech: 's', voice: 'ko-KR-Chirp3-HD-Kore', rate: 1, reason: 'r' },
+  ], ['MAYA'], 'en');
+  assert.strictEqual(out[0].voice, null);
 });

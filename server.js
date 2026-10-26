@@ -117,6 +117,13 @@ const ALTERNATIVES = 5;
 // 합성 음성으로 비교했을 때 ko-KR 대사 인식이 가장 정확했던 모델 (default 97% → latest_long 100%)
 const STT_MODEL = 'latest_long';
 
+// 대본 언어에 맞춰 인식 (X-Speech-Lang). 허용 목록 밖이면 한국어
+const SPEECH_LANGS = new Set(['ko-KR', 'en-US']);
+function speechLanguage(req) {
+  const lang = String(req.headers['x-speech-lang'] || '');
+  return SPEECH_LANGS.has(lang) ? lang : 'ko-KR';
+}
+
 function lineHint(req) {
   const raw = req.headers['x-line-hint'];
   if (!raw) return '';
@@ -133,7 +140,7 @@ function speechContexts(hint) {
   return phrases.length ? [{ phrases, boost: HINT_BOOST }] : [];
 }
 
-async function recognize(wav, info, hint = '') {
+async function recognize(wav, info, hint = '', languageCode = 'ko-KR') {
   const { token, project } = await getAuth();
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   if (project) headers['x-goog-user-project'] = project;
@@ -143,7 +150,7 @@ async function recognize(wav, info, hint = '') {
     signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     body: JSON.stringify({
       config: {
-        encoding: 'LINEAR16', sampleRateHertz: info.sampleRate, languageCode: 'ko-KR', model: STT_MODEL,
+        encoding: 'LINEAR16', sampleRateHertz: info.sampleRate, languageCode, model: STT_MODEL,
         maxAlternatives: ALTERNATIVES, speechContexts: speechContexts(hint),
       },
       audio: { content: wav.subarray(info.dataOffset, info.dataOffset + info.dataBytes).toString('base64') },
@@ -212,7 +219,7 @@ function createSttHandler({ allow = createRateLimiter(RATE_LIMIT), allowGlobal =
     if (inFlight >= MAX_IN_FLIGHT) return sendJson(res, 503, TOO_MANY);
     inFlight++;
     try {
-      const result = await transcribe(wav, info, lineHint(req));
+      const result = await transcribe(wav, info, lineHint(req), speechLanguage(req));
       return sendJson(res, 200, typeof result === 'string' ? { text: result } : result);
     } catch (err) {
       console.error('[stt]', err.message);  // 자세한 원인은 서버 로그에만 남김
@@ -327,4 +334,4 @@ if (require.main === module) {
   createServer().listen(port, () => console.log(`acting-practice on :${port} (static: ${ROOT})`));
 }
 
-module.exports = { parseWavHeader, validateWav, createRateLimiter, createServer, clientIp, lineHint, speechContexts, MAX_AUDIO_SECONDS };
+module.exports = { parseWavHeader, validateWav, createRateLimiter, createServer, clientIp, lineHint, speechLanguage, speechContexts, MAX_AUDIO_SECONDS };
