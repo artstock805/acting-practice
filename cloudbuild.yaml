@@ -35,8 +35,8 @@ steps:
       - --memory=256Mi
       - --max-instances=3
       - --concurrency=20   # 큰 대본 분석·음성 합성이 몰려도 256Mi 메모리를 넘지 않게
-      # AI 배역 분석을 켤 때: Secret Manager 'anthropic-api-key'에 키를 넣은 뒤 아래 줄을 추가 (키 없이 넣으면 배포 실패)
-      # - --set-secrets=ANTHROPIC_API_KEY=anthropic-api-key:latest
+      # AI 배역 분석용 Claude 키 (Secret Manager 'anthropic-api-key'에 버전이 있어야 배포됨)
+      - --set-secrets=ANTHROPIC_API_KEY=anthropic-api-key:latest
       - --quiet
 
 serviceAccount: projects/${PROJECT_ID}/serviceAccounts/acting-practice-build@${PROJECT_ID}.iam.gserviceaccount.com
