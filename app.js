@@ -14,7 +14,7 @@
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const CLOUD_NARRATOR = { ...NARRATOR_VOICE, cloudVoice: VC.NARRATOR_VOICE_ID };
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v27';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v28';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -376,9 +376,17 @@
   // ---------- 4. 작품 분석 (초목표·관계도) ----------
   let insightSvg = null;
 
+  const INSIGHT_TAB = '4. 분석';
+
   function goInsight() {
     showView('insight');
+    setInsightTabMark('');  // 다른 탭에 있는 동안 끝난 결과(✅)를 봤으니 표시를 지움
     renderInsight();
+  }
+
+  // 분석이 진행 중(⏳)이거나 다른 탭에 있는 동안 끝났으면(✅) 탭 이름 옆에 표시
+  function setInsightTabMark(mark) {
+    document.querySelector('[data-view=insight]').textContent = mark ? `${INSIGHT_TAB} ${mark}` : INSIGHT_TAB;
   }
 
   function renderInsight() {
@@ -403,19 +411,35 @@
     const names = K.listCharacters(state.items).map((c) => c.name);
     if (!names.length) return;
     if (state.insight && !confirm('지금 분석(직접 고친 내용 포함)을 새 분석으로 바꿀까요?')) return;
+    const script = state.text;
     btn.disabled = true;
-    setInsightStatus('🤖 대본을 읽고 초목표와 관계를 정리하는 중… (긴 대본은 1~2분)');
+    // 진행 시간을 1초마다 올려 멈춘 게 아님을 보여 줌. 다른 탭에 가도 분석은 계속되고 결과는 받는 즉시 저장됨
+    const started = Date.now();
+    const tick = () => {
+      const secs = Math.round((Date.now() - started) / 1000);
+      setInsightStatus(`🤖 대본을 읽고 초목표와 관계를 정리하는 중… ${secs}초 지남 (긴 대본은 1분 안팎). 다른 탭에 가도 계속 진행되고, 끝나면 결과가 저장돼요.`);
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    setInsightTabMark('⏳');
+    let finished = '';
     try {
-      const res = await fetch('/api/insight', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: state.text, characters: names }) });
+      const res = await fetch('/api/insight', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script, characters: names }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `분석 실패 (${res.status})`);
+      if (state.text !== script) throw new Error('분석하는 사이에 대본이 바뀌어 이 결과는 쓰지 않았어요. 다시 눌러 주세요.');
       update({ insight: body });
       renderInsight();
-      setInsightStatus(`✅ 작품 초목표, 배역 ${body.characters.length}명, 관계 ${body.relationships.length}개를 정리했어요. 칸을 눌러 직접 고칠 수 있어요.`);
+      const secs = Math.round((Date.now() - started) / 1000);
+      setInsightStatus(`✅ ${secs}초 만에 작품 초목표, 배역 ${body.characters.length}명, 관계 ${body.relationships.length}개를 정리했어요. 칸을 눌러 직접 고칠 수 있어요.`);
+      finished = '✅';
     } catch (err) {
       setInsightStatus('⚠ ' + (err.message || 'AI 분석에 실패했습니다.'), true);
+      finished = '⚠';
     } finally {
+      clearInterval(timer);
       btn.disabled = false;
+      setInsightTabMark($('view-insight').classList.contains('active') ? '' : finished);
     }
   }
 
