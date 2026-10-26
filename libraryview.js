@@ -8,8 +8,30 @@
     { name: 'Project Gutenberg 희곡 목록', lang: '영어', url: 'https://www.gutenberg.org/ebooks/bookshelf/642?sort_order=downloads' },
     { name: '위키문헌 희곡 목록', lang: '한국어', url: 'https://ko.wikisource.org/wiki/분류:희곡' },
   ];
-  // 공유마당(한국저작권위원회): 어문 저작물에서 '희곡'으로 검색한 결과. 사이트가 자동 내려받기를 막아서 파일은 사람이 직접 받음
-  const GONGU_SEARCH = { name: '공유마당 희곡 검색', lang: '한국어', url: 'https://gongu.copyright.or.kr/gongu/wrt/wrtCl/listWrtText.do?menuNo=200019&searchKeyword=%ED%9D%AC%EA%B3%A1' };
+  // 공유마당(한국저작권위원회): 어문 저작물에서 '희곡'으로 검색(searchWrd)하고 「만료」 저작물(licenseCd=97)만 고른 결과.
+  // 사이트가 자동 내려받기를 막아서 파일은 사람이 직접 받음
+  const GONGU_SEARCH = { name: '공유마당 희곡 검색', lang: '한국어', url: 'https://gongu.copyright.or.kr/gongu/wrt/wrtCl/listWrtText.do?menuNo=200019&searchWrd=%ED%9D%AC%EA%B3%A1&licenseCd=97' };
+  const gonguWorkUrl = (id) => `https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=${id}&menuNo=200019`;
+  // 공유마당 「만료」 어문 저작물 중 '#희곡' 태그가 붙은 작품 (84편, 2026-10 기준). [작품 번호(wrtSn), 제목, 바로 불러오기 id(위키문헌·서재에 있으면)]
+  const GONGU_PLAYS = [
+    ['채만식', [[9001456, '간도행'], [9001459, '감독의 안해'], [9001449, '그의 가정풍경'], [9001446, '낙일'], [9001460, '낚시질판의 풍파'], [9001447, '농촌 스켓치'], [9001445, '당랑의 전설'], [9001452, '두부'], [9001461, '목침맞은 사또'], [9001450, '미가대폭락'], [9001448, '밥'], [9001462, '부촌'], [9001455, '사라지는 그림자'], [9001451, '스님과 새장수'], [9001454, '야생소년군'], [9001465, '영웅모집'], [9001467, '예수나 안믿었드면'], [9001464, '인테리와 빈대떡'], [9001444, '제향날'], [9001457, '조그마한 기업가'], [9001463, '조조'], [9001453, '코떼인 지사'], [9001458, '행랑들창에서 들리는 소리'], [9001466, '흘러간 고향']]],
+    ['함세덕', [[9030902, '감자와 쪽제비와 여교원'], [9031524, '고목'], [9002039, '기미년3월1일'], [9002043, '낙화암'], [9002048, '닭과 아이들'], [9002034, '동승'], [9002044, '마을은 쾌청'], [9002042, '무의도 기행'], [9030904, '산사람들'], [9002033, '산허구리'], [9030903, '소위 대통령'], [9002052, '심원의 삽화'], [9002038, '에밀레종'], [9002049, '오월의 아침'], [9030901, '추석'], [9002037, '추장 이사베라'], [9030900, '해연']]],
+    ['김정진', [[9021301, '15분간'], [9030939, '개'], [9030941, '그 사람들'], [9021304, '그리운 밤'], [9021306, '기적 불 때'], [9030938, '메아리'], [9021310, '사인의 심리'], [9030942, '약수풍경'], [9030940, '잔설'], [9021314, '전변'], [9021285, '찬 웃음']]],
+    ['김우진', [[9000385, '난파'], [9000386, '두더기 시인의 환멸'], [9000387, '산돼지'], [9000388, '이영녀'], [9000389, '정오']]],
+    ['박용철', [[9033075, '[낸] 의 비극'], [9033078, '기사와 서기'], [9033076, '바보'], [9033077, '베니스의 상인'], [9033079, '사랑의 기적 소품']]],
+    ['방정환', [[9029597, '남녀 학교 소사 대화 이'], [9029596, '남녀 학교 소사 대화 일'], [9000552, '노래주머니', 'ws-노래 주머니']]],
+    ['이무영', [[9035687, '벽'], [9035686, '톨스토이'], [9035685, '한낮에꿈꾸는사람들']]],
+    ['홍사용', [[9002206, '출가'], [9002207, '할미꽃'], [9029390, '흰 젖', 'ws-흰 젖']]],
+    ['권환', [[9018734, '광!'], [9018764, '인쇄한 러브레터', 'ws-인쇄한 러브레터']]],
+    ['나정월', [[9000514, '백결생에게 답함'], [9000515, '파리의 그 여자']]],
+    ['유지영', [[9030937, '연과 죄 (전3막)'], [9030936, '이상적 결혼 (전2막 3장)']]],
+    ['조명희', [[9001326, '김영일의 사'], [9001327, '파사']]],
+    ['김상용', [[9034030, '빈궁']]],
+    ['박아지', [[9001028, '어머니와딸']]],
+    ['박인환', [[9029505, '황금아Golden boy']]],
+    ['이광수', [[9030935, '규한', 'gyuhan']]],
+    ['이효석', [[9029968, '역사']]],
+  ];
   // 파일로 받아 '📄 대본 파일 열기'로 넣는 곳
   const FILE_SITES = [
     { name: 'Internet Archive', desc: '오래된 희곡집. 작품 → 오른쪽 DOWNLOAD OPTIONS의 TEXT 또는 PDF → 📄 대본 파일 열기', url: 'https://archive.org/search?query=plays' },
@@ -131,10 +153,28 @@
       const openFile = el('button', { className: 'primary', type: 'button', textContent: '📄 받은 파일 열기' });
       openFile.hidden = !onOpenFile;
       openFile.onclick = () => { dialog.close(); onOpenFile(); };
+      // 공유마당 만료 희곡 목록 (작가별). 제목은 작품 페이지로, 위키문헌·서재에 있는 작품은 바로 불러오기도
+      const total = GONGU_PLAYS.reduce((n, [, list]) => n + list.length, 0);
+      const playsBox = el('details', { className: 'library-plays' }, el('summary', { textContent: `📜 저작권이 끝난 희곡 ${total}편 목록 (작가별)` }));
+      const playsStatus = el('p', { className: 'note import-status', hidden: true });
+      const sayPlays = (text, isError) => { playsStatus.hidden = !text; playsStatus.textContent = text; playsStatus.classList.toggle('error', !!isError); };
+      playsBox.append(el('p', { className: 'note', textContent: '제목을 누르면 공유마당 작품 페이지가 열려요. ⚡ 표시는 파일 없이 바로 불러올 수 있어요.' }), playsStatus);
+      GONGU_PLAYS.forEach(([author, list]) => {
+        const works = el('div', { className: 'library-play-list' });
+        list.forEach(([id, title, quick]) => {
+          works.append(el('a', { className: 'library-play', href: gonguWorkUrl(id), target: '_blank', rel: 'noopener noreferrer', textContent: `${title} ↗` }));
+          if (!quick) return;
+          const now = el('button', { className: 'ghost library-play-quick', type: 'button', textContent: `⚡ ${title} 바로 불러오기` });
+          now.onclick = () => load({ id: quick, title }, now, sayPlays);
+          works.append(now);
+        });
+        playsBox.append(el('p', { className: 'library-step' }, el('b', { textContent: author }), ` (${list.length}편)`), works);
+      });
       const gongu = el('div', { className: 'library-gongu' },
         el('p', { className: 'library-step' }, el('b', { textContent: '📁 공유마당에서 파일로 받기 ' }), '(한국어 희곡)'),
+        playsBox,
         el('div', { className: 'library-sites' }, el('a', { className: 'library-site', href: GONGU_SEARCH.url, target: '_blank', rel: 'noopener noreferrer', textContent: `${GONGU_SEARCH.name} ↗` })),
-        step('①', '검색 결과에서 작품을 누르세요'),
+        step('①', '목록이나 검색 결과에서 작품을 누르세요'),
         step('②', '작품 페이지에서 이용 조건을 확인하세요'),
         el('p', { className: 'note', textContent: '「만료」는 저작권이 끝난 작품이라 자유롭게 연습할 수 있어요. 「CC」·「기증」 표시는 적힌 조건(출처 표시 등) 안에서 쓸 수 있어요. 아무 표시가 없거나 상업적 이용 금지 등 조건이 있으면 개인 연습용으로만 쓰세요.' }),
         step('③', '「다운로드」를 눌러 파일(한글·PDF·TXT)을 받으세요'),
@@ -181,5 +221,5 @@
     };
   }
 
-  root.LibraryView = { create, parseSourceAddress, MORE_SITES };
+  root.LibraryView = { create, parseSourceAddress, gonguWorkUrl, GONGU_SEARCH, GONGU_PLAYS, MORE_SITES };
 })(this);

@@ -195,3 +195,17 @@ test('Gutenberg plays with "NAME. speech" on one line (Shaw, Chekhov) are conver
     ['THE FLOWER GIRL', 'Ow, eez ye-ooa san, is e?', ''],
   ]);
 });
+
+test('공유마당 search link filters by 희곡 and expired works, and the play list is complete', () => {
+  const { GONGU_SEARCH, GONGU_PLAYS, gonguWorkUrl } = require('./libraryview.js').LibraryView;
+  const search = new URL(GONGU_SEARCH.url);
+  assert.strictEqual(search.searchParams.get('searchWrd'), '희곡');
+  assert.strictEqual(search.searchParams.get('licenseCd'), '97');
+  const works = GONGU_PLAYS.flatMap(([author, list]) => list.map(([id, title, quick]) => ({ author, id, title, quick })));
+  assert.strictEqual(works.length, 84);
+  assert.strictEqual(new Set(works.map((w) => w.id)).size, 84);
+  works.forEach((w) => assert.ok(w.author && w.title && /^\d{7}$/.test(String(w.id)), JSON.stringify(w)));
+  assert.strictEqual(gonguWorkUrl(9021301), 'https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=9021301&menuNo=200019');
+  // 바로 불러오기 id는 서재 목록이나 위키문헌 가져오기 형식이어야 함
+  works.filter((w) => w.quick).forEach((w) => assert.ok(CATALOG.some((c) => c.id === w.quick) || /^ws-/.test(w.quick), w.quick));
+});
