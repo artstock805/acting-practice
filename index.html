@@ -41,6 +41,7 @@
       <div class="row">
         <button id="btn-sample" class="ghost">예시 대본 불러오기</button>
         <button id="btn-sample-en" class="ghost">English example</button>
+        <button id="btn-library" class="ghost">📚 무료 대본 서재</button>
         <label class="lang-pick">대본 언어
           <select id="opt-lang">
             <option value="auto">자동 감지</option>
@@ -160,6 +161,8 @@
     </section>
   </main>
 
+  <dialog id="library-dialog" class="phone-dialog library-dialog"></dialog>
+
   <dialog id="phone-dialog" class="phone-dialog">
     <h2>📱 휴대폰에서 열기</h2>
     <p>휴대폰 카메라로 QR 코드를 찍으면 바로 열립니다.</p>
@@ -185,6 +188,7 @@
   <script src="audiokit.js"></script>
   <script src="cloudstt.js"></script>
   <script src="insightview.js"></script>
+  <script src="libraryview.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

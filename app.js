@@ -11,12 +11,13 @@
   const VC = window.VoiceCatalog;
   const CT = window.CloudTTS;
   const IV = window.InsightView;
+  const LV = window.LibraryView;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   // 대본 언어: state.lang = 'ko' | 'en' (자동 판별 또는 선택), state.langChoice = 'auto' | 'ko' | 'en'
   const scriptLang = () => (state.lang === 'en' ? 'en' : 'ko');
   const speechLocale = () => VC.localeOf(scriptLang());
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v29';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v30';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -1000,6 +1001,7 @@
     const openView = { practice: goPractice, insight: goInsight };
     document.querySelectorAll('.tab').forEach((t) => { t.onclick = () => (openView[t.dataset.view] || (() => showView(t.dataset.view)))(); });
     $('btn-sample').onclick = () => { $('script-input').value = window.SAMPLE_SCRIPT; showDetectedLanguage(); };
+    $('btn-library').onclick = openLibrary;
     $('btn-sample-en').onclick = () => { $('script-input').value = window.SAMPLE_SCRIPT_EN; showDetectedLanguage(); };
     $('opt-lang').onchange = showDetectedLanguage;
     $('script-input').addEventListener('input', showDetectedLanguage);
@@ -1108,6 +1110,20 @@
       if (deferred) { deferred.prompt(); await deferred.userChoice; deferred = null; btn.hidden = true; return; }
       alert('iPhone/iPad: Safari 아래쪽의 공유 버튼(□↑)을 누르고 "홈 화면에 추가"를 선택하세요.');
     };
+  }
+
+  // ---------- 무료 대본 서재 (공개 저작물 희곡) ----------
+  let library = null;
+  function openLibrary() {
+    library = library || LV.create($('library-dialog'), { onPick: pickLibraryScript });
+    library.open();
+  }
+
+  function pickLibraryScript({ text, lang, title }) {
+    $('script-input').value = text;
+    $('opt-lang').value = lang;
+    showDetectedLanguage();
+    setImportStatus(`✅ 「${title}」을(를) 불러왔어요 (공개 저작물). 내용을 확인하고 '대본 분석'을 누르세요.`);
   }
 
   // '자동 감지'일 때 지금 대본이 어떤 언어로 보이는지 옆에 알려 줌

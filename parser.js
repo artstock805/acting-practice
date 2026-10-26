@@ -3,7 +3,7 @@
   'use strict';
 
   const MAX_NAME_LEN = 15;
-  const SCENE_RE = /^\s*(S\s*#\s*\d+|#\s*\d+|씬\s*\d+|장면\s*\d+|INT\.|EXT\.|INT\.?\s*\/\s*EXT\.?|I\/E\.?\s|SCENE\s*\d+|ACT\s+([IVX]+|\d+)\b|\d+\.\s*(실내|실외|내부|외부))/i;
+  const SCENE_RE = /^\s*(S\s*#\s*\d+|#\s*\d+|씬\s*\d+|장면\s*\d+|INT\.|EXT\.|INT\.?\s*\/\s*EXT\.?|I\/E\.?\s|SCENE\s*\d+|SCENE\s+[IVXLC]+\b|ACT\s+([IVXLC]+|\d+)\b|\d+\.\s*(실내|실외|내부|외부))/i;
   // 영어 시나리오: 대문자만으로 된 인물 이름 줄 ("MAYA", "DANIEL (O.S.)", "MRS. HENDERSON (CONT'D)")
   const CUE_RE = /^([A-Z][A-Z0-9 .'’&-]*[A-Z0-9])((?:\s*\([A-Z0-9 .'’-]+\))*)\s*$/;
   const MAX_CUE_LEN = 30;
@@ -84,7 +84,11 @@
   // 영어 희곡식 "NAME. 대사": 같은 이름이 두 번 이상, 이런 줄이 모두 세 번 이상 나올 때만
   function findCapsDotNames(lines) {
     const counts = new Map();
-    lines.forEach((raw) => { const m = CAPS_DOT_RE.exec(String(raw).trim()); if (m) counts.set(m[1], (counts.get(m[1]) || 0) + 1); });
+    lines.forEach((raw) => {
+      const line = String(raw).trim();
+      const m = !isCue(line) && CAPS_DOT_RE.exec(line);  // "MRS. ELVSTED" 같은 이름 줄은 희곡식 줄이 아님
+      if (m) counts.set(m[1], (counts.get(m[1]) || 0) + 1);
+    });
     const total = [...counts.values()].reduce((a, b) => a + b, 0);
     return total >= MIN_SPEAKER_LINES ? new Set([...counts].filter(([, n]) => n >= 2).map(([name]) => name)) : new Set();
   }
@@ -161,14 +165,14 @@
         items.push({ type: 'line', character: spoken[1], text: speech, note: joinNotes('', note), scene });
         return;
       }
+      const cue = isCue(line);
+      if (cue) { pendingName = { name: cue, note: '', multiline: true }; return; }
       const capsDot = CAPS_DOT_RE.exec(line);
       if (capsDot && capsDotNames.has(capsDot[1])) {
         const { text: speech, note } = splitNote(capsDot[2]);
         items.push({ type: 'line', character: capsDot[1], text: speech, note: joinNotes('', note), scene });
         return;
       }
-      const cue = isCue(line);
-      if (cue) { pendingName = { name: cue, note: '', multiline: true }; return; }
       if (!noStandaloneNames && isStandaloneName(line)) { pendingName = { name: line, note: '' }; return; }
       items.push({ type: 'direction', text: line, scene });
     });
