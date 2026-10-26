@@ -7,7 +7,8 @@ const path = require('node:path');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const { createTtsHandler, createGoogleSynthesizer, createDailyBudget } = require('./tts.js');
-const { createAnalyzeHandler, createClaudeAnalyzer } = require('./analyze.js');
+const { createAnalyzeHandler, createClaudeClient, analyzeWithClaude } = require('./analyze.js');
+const { insightWithClaude } = require('./insight.js');
 
 const ROOT = path.resolve(process.env.STATIC_ROOT || __dirname);
 const MAX_AUDIO_BYTES = 1024 * 1024;   // 16kHz 모노 16bit 기준 약 32초
@@ -273,13 +274,14 @@ function compressed(entry, encoding) {
   return entry[encoding];
 }
 
-function route({ handleStt, handleTts, handleAnalyze }, req, res) {
+function route({ handleStt, handleTts, handleAnalyze, handleInsight }, req, res) {
   let pathname;
   try { pathname = new URL(req.url, 'http://x').pathname; } catch { return send(res, 400, ''); }  // 예: 'GET //'
   if (pathname === '/api/stt' && req.method === 'POST') return handleStt(req, res);
   if (pathname === '/api/stt/health' && req.method === 'GET') return sendJson(res, 200, { ok: true });
   if (pathname === '/api/tts' && req.method === 'POST') return handleTts(req, res);
   if (pathname === '/api/analyze' && req.method === 'POST') return handleAnalyze(req, res);
+  if (pathname === '/api/insight' && req.method === 'POST') return handleInsight(req, res);
   if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);
   return send(res, 405, '');
 }
@@ -292,16 +294,23 @@ function createServer(opts) {
     dailyCharsPerClient: opts && opts.ttsDailyCharsPerClient,
     readBody, sendJson, send, clientIp, createRateLimiter,
   });
+  const claude = opts && 'claude' in opts ? opts.claude : createClaudeClient();
   const handleAnalyze = createAnalyzeHandler({
-    analyze: opts && 'analyze' in opts ? opts.analyze : createClaudeAnalyzer(),
+    analyze: opts && 'analyze' in opts ? opts.analyze : claude && ((args) => analyzeWithClaude(args, claude)),
     daily: opts && opts.analyzeDaily,
     maxInFlight: opts && opts.analyzeMaxInFlight,
+    readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
+  });
+  // 초목표·관계도 분석: 배역 분석과 같은 한도 규칙을 따로 적용 (서로의 한도를 깎지 않음)
+  const handleInsight = createAnalyzeHandler({
+    analyze: opts && 'insight' in opts ? opts.insight : claude && ((args) => insightWithClaude(args, claude)),
+    toBody: (insight) => insight,
     readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
   });
   const server = http.createServer((req, res) => {
     // 요청 하나의 예상 못 한 오류가 프로세스 전체를 멈추지 않게 여기서 받음
     Promise.resolve()
-      .then(() => route({ handleStt, handleTts, handleAnalyze }, req, res))
+      .then(() => route({ handleStt, handleTts, handleAnalyze, handleInsight }, req, res))
       .catch((err) => {
         console.error('[server]', err && err.stack ? err.stack : err);
         if (!res.headersSent) send(res, 500, '');

@@ -10,10 +10,11 @@
   const V = window.VoiceKit;
   const VC = window.VoiceCatalog;
   const CT = window.CloudTTS;
+  const IV = window.InsightView;
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   const CLOUD_NARRATOR = { ...NARRATOR_VOICE, cloudVoice: VC.NARRATOR_VOICE_ID };
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v26';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v27';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -53,6 +54,7 @@
     const hasCast = state.items.some((i) => i.type === 'line');
     document.querySelector('[data-view=cast]').disabled = !hasCast;
     document.querySelector('[data-view=practice]').disabled = !hasCast || !myNames().length;
+    document.querySelector('[data-view=insight]').disabled = !hasCast;
   }
 
   // ---------- 1. 대본 ----------
@@ -67,7 +69,7 @@
     const newOthers = chars.map((c) => c.name).filter((n) => cast[n].isNew && !cast[n].mine);
     const assigned = distributeAllVoices(newOthers, cast);
     Object.keys(cast).forEach((n) => { const { isNew, ...rest } = cast[n]; cast[n] = { ...rest, ...(assigned[n] || {}) }; });
-    update({ text, items, cast, index: 0, results: {}, mergeDismissed: [] });
+    update({ text, items, cast, index: 0, results: {}, mergeDismissed: [], insight: text === state.text ? state.insight : null });
     renderCast();
     enableTabs();
     showView('cast');
@@ -369,6 +371,69 @@
         btn.setAttribute('aria-expanded', String(!help.hidden));
       };
     });
+  }
+
+  // ---------- 4. 작품 분석 (초목표·관계도) ----------
+  let insightSvg = null;
+
+  function goInsight() {
+    showView('insight');
+    renderInsight();
+  }
+
+  function renderInsight() {
+    const lineCounts = Object.fromEntries(K.listCharacters(state.items).map((c) => [c.name, c.lines]));
+    insightSvg = IV.render($('insight-body'), state.insight, { lineCounts, mine: new Set(myNames()), onEdit: editInsight });
+    $('insight-actions').hidden = !state.insight;
+  }
+
+  // 칸을 고치면 바로 저장 (화면은 다시 그리지 않아 글을 쓰는 중에 커서가 튀지 않음)
+  function editInsight(pathKeys, value) {
+    update({ insight: setIn(state.insight, pathKeys, value) });
+  }
+
+  function setIn(obj, [key, ...rest], value) {
+    const copy = Array.isArray(obj) ? [...obj] : { ...obj };
+    copy[key] = rest.length ? setIn(obj[key], rest, value) : value;
+    return copy;
+  }
+
+  async function runInsight() {
+    const btn = $('btn-insight');
+    const names = K.listCharacters(state.items).map((c) => c.name);
+    if (!names.length) return;
+    if (state.insight && !confirm('지금 분석(직접 고친 내용 포함)을 새 분석으로 바꿀까요?')) return;
+    btn.disabled = true;
+    setInsightStatus('🤖 대본을 읽고 초목표와 관계를 정리하는 중… (긴 대본은 1~2분)');
+    try {
+      const res = await fetch('/api/insight', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: state.text, characters: names }) });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `분석 실패 (${res.status})`);
+      update({ insight: body });
+      renderInsight();
+      setInsightStatus(`✅ 작품 초목표, 배역 ${body.characters.length}명, 관계 ${body.relationships.length}개를 정리했어요. 칸을 눌러 직접 고칠 수 있어요.`);
+    } catch (err) {
+      setInsightStatus('⚠ ' + (err.message || 'AI 분석에 실패했습니다.'), true);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function copyInsightText() {
+    const text = IV.toText(state.insight, new Set(myNames()));
+    try {
+      await navigator.clipboard.writeText(text);
+      setInsightStatus('📋 분석 내용을 복사했어요. 노션·메신저에 붙여 넣으세요.');
+    } catch (_) {
+      setInsightStatus('⚠ 복사하지 못했어요. 브라우저가 복사를 막았을 수 있어요.', true);
+    }
+  }
+
+  function setInsightStatus(text, isError) {
+    const box = $('insight-status');
+    box.hidden = !text;
+    box.textContent = text;
+    box.classList.toggle('error', !!isError);
   }
 
   // ---------- 3. 연습 ----------
@@ -893,13 +958,17 @@
 
   // ---------- 이벤트 ----------
   function bindEvents() {
-    document.querySelectorAll('.tab').forEach((t) => { t.onclick = () => (t.dataset.view === 'practice' ? goPractice() : showView(t.dataset.view)); });
+    const openView = { practice: goPractice, insight: goInsight };
+    document.querySelectorAll('.tab').forEach((t) => { t.onclick = () => (openView[t.dataset.view] || (() => showView(t.dataset.view)))(); });
     $('btn-sample').onclick = () => { $('script-input').value = window.SAMPLE_SCRIPT; };
     bindFilePicker();
     $('btn-parse').onclick = parseAndGo;
     $('btn-to-practice').onclick = goPractice;
     $('btn-auto-voices').onclick = autoAssignVoices;
     $('btn-ai-cast').onclick = analyzeCast;
+    $('btn-insight').onclick = runInsight;
+    $('btn-insight-png').onclick = () => insightSvg && IV.saveGraphImage(insightSvg).catch((err) => setInsightStatus('⚠ ' + err.message, true));
+    $('btn-insight-copy').onclick = copyInsightText;
     $('btn-phone').onclick = () => { $('phone-dialog').showModal(); loadQrLibrary().then(showPhoneQr, () => { /* 못 불러오면 기본 QR 그림을 그대로 둠 */ }); };
     $('btn-play').onclick = () => {
       S.unlock();  // iOS는 첫 음성을 사용자 터치 안에서 내야 이후 낭독이 허용됨

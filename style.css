@@ -216,3 +216,21 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 .transcript li .take { float: right; margin-left: 8px; background: none; border: 0; cursor: pointer; padding: 0 4px; font-size: 1rem; }
 .transcript li .take:hover { transform: scale(1.2); }
+
+/* 4. 작품 분석: 초목표 카드·관계도 */
+.insight-body { display: grid; gap: 16px; margin-top: 16px; }
+.insight-card { background: var(--stage-2); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 16px 18px; display: grid; gap: 10px; }
+.insight-card h3 { margin: 0; font-family: var(--serif); font-size: 1.15rem; }
+.insight-card.is-mine { border-color: var(--mine); }
+.insight-play { border-color: var(--spot); }
+.insight-field { display: grid; gap: 4px; }
+.insight-label { color: var(--muted); font-size: 0.82rem; }
+.insight-field textarea { min-height: 0; padding: 10px 12px; font-size: 0.98rem; line-height: 1.6; box-shadow: none; resize: vertical; }
+.insight-graph { width: 100%; height: auto; display: block; border-radius: var(--radius-lg); }
+.insight-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 0.85rem; color: var(--muted); }
+.insight-legend .swatch { display: inline-block; width: 18px; height: 4px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.insight-relations, .insight-evidence { margin: 0; padding-left: 18px; color: var(--muted); font-size: 0.9rem; line-height: 1.6; }
+.insight-relations b { color: var(--paper); }
+.insight-evidence li { font-family: var(--serif); color: var(--paper); }
+.insight-section-title { margin: 8px 0 0; font-family: var(--serif); }
+.insight-people { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
