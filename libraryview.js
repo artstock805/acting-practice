@@ -8,9 +8,7 @@
     { name: 'Project Gutenberg 희곡 목록', lang: '영어', url: 'https://www.gutenberg.org/ebooks/bookshelf/642?sort_order=downloads' },
     { name: '위키문헌 희곡 목록', lang: '한국어', url: 'https://ko.wikisource.org/wiki/분류:희곡' },
   ];
-  // 공유마당(한국저작권위원회): 어문 저작물에서 '희곡'으로 검색(searchWrd)하고 「만료」 저작물(licenseCd=97)만 고른 결과.
-  // 사이트가 자동 내려받기를 막아서 파일은 사람이 직접 받음
-  const GONGU_SEARCH = { name: '공유마당 희곡 검색', lang: '한국어', url: 'https://gongu.copyright.or.kr/gongu/wrt/wrtCl/listWrtText.do?menuNo=200019&searchWrd=%ED%9D%AC%EA%B3%A1&licenseCd=97' };
+  // 공유마당(한국저작권위원회) 작품 페이지. 사이트가 자동 내려받기를 막아서 파일은 사람이 직접 받음
   const gonguWorkUrl = (id) => `https://gongu.copyright.or.kr/gongu/wrt/wrt/view.do?wrtSn=${id}&menuNo=200019`;
   // 공유마당 「만료」 어문 저작물 중 '#희곡' 태그가 붙은 작품 (84편, 2026-10 기준). [작품 번호(wrtSn), 제목, 바로 불러오기 id(위키문헌·서재에 있으면)]
   const GONGU_PLAYS = [
@@ -36,7 +34,7 @@
   const FILE_SITES = [
     { name: 'Internet Archive', desc: '오래된 희곡집. 작품 → 오른쪽 DOWNLOAD OPTIONS의 TEXT 또는 PDF → 📄 대본 파일 열기', url: 'https://archive.org/search?query=plays' },
   ];
-  const MORE_SITES = [...IMPORT_SITES, GONGU_SEARCH, ...FILE_SITES];
+  const MORE_SITES = [...IMPORT_SITES, ...FILE_SITES];
 
   // 붙여 넣은 주소 → 서버가 알아보는 작품 id (gb-책번호 / ws-위키문헌 제목). 모르는 주소는 null
   function parseSourceAddress(input) {
@@ -173,8 +171,7 @@
       const gongu = el('div', { className: 'library-gongu' },
         el('p', { className: 'library-step' }, el('b', { textContent: '📁 공유마당에서 파일로 받기 ' }), '(한국어 희곡)'),
         playsBox,
-        el('div', { className: 'library-sites' }, el('a', { className: 'library-site', href: GONGU_SEARCH.url, target: '_blank', rel: 'noopener noreferrer', textContent: `${GONGU_SEARCH.name} ↗` })),
-        step('①', '목록이나 검색 결과에서 작품을 누르세요'),
+        step('①', '목록에서 작품 제목을 누르세요'),
         step('②', '작품 페이지에서 이용 조건을 확인하세요'),
         el('p', { className: 'note', textContent: '「만료」는 저작권이 끝난 작품이라 자유롭게 연습할 수 있어요. 「CC」·「기증」 표시는 적힌 조건(출처 표시 등) 안에서 쓸 수 있어요. 아무 표시가 없거나 상업적 이용 금지 등 조건이 있으면 개인 연습용으로만 쓰세요.' }),
         step('③', '「다운로드」를 눌러 파일(한글·PDF·TXT)을 받으세요'),
@@ -221,5 +218,5 @@
     };
   }
 
-  root.LibraryView = { create, parseSourceAddress, gonguWorkUrl, GONGU_SEARCH, GONGU_PLAYS, MORE_SITES };
+  root.LibraryView = { create, parseSourceAddress, gonguWorkUrl, GONGU_PLAYS, MORE_SITES };
 })(this);
