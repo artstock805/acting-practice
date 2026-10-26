@@ -246,3 +246,9 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
 .library-more { margin: 12px 0; }
 .library-more ul { padding-left: 18px; line-height: 1.8; }
 .library-more a { color: var(--spot); }
+.library-more { text-align: left; }
+.library-step { margin: 10px 0 4px; }
+.library-sites { display: flex; flex-wrap: wrap; gap: 8px; }
+.library-site { display: inline-block; padding: 8px 12px; border: 1px solid var(--spot); border-radius: var(--radius-sm); color: var(--spot); text-decoration: none; }
+.library-import { flex-wrap: wrap; }
+.library-address { flex: 1 1 220px; min-width: 0; background: var(--stage); color: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 16px; }
