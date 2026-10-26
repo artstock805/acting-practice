@@ -253,3 +253,8 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
 .library-import { flex-wrap: wrap; }
 .library-address { flex: 1 1 220px; min-width: 0; background: var(--stage); color: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 16px; }
 .library-gongu { margin: 14px 0; padding: 10px 12px; border: 1px dashed var(--line); border-radius: var(--radius-sm); }
+.library-plays { margin: 8px 0 12px; }
+.library-plays summary { cursor: pointer; font-weight: 700; color: var(--spot); }
+.library-play-list { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 6px; }
+.library-play { color: var(--paper); text-decoration: underline dotted; text-underline-offset: 3px; }
+.library-play-quick { padding: 4px 10px; font-size: 0.9rem; }
