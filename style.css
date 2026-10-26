@@ -252,3 +252,4 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
 .library-site { display: inline-block; padding: 8px 12px; border: 1px solid var(--spot); border-radius: var(--radius-sm); color: var(--spot); text-decoration: none; }
 .library-import { flex-wrap: wrap; }
 .library-address { flex: 1 1 220px; min-width: 0; background: var(--stage); color: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 16px; }
+.library-gongu { margin: 14px 0; padding: 10px 12px; border: 1px dashed var(--line); border-radius: var(--radius-sm); }
