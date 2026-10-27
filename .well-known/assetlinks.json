@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.artstock805.actingpractice",
+      "sha256_cert_fingerprints": [
+        "E7:A1:20:73:DB:DF:EF:17:BD:FB:86:1C:E1:6C:D3:CB:58:BD:69:48:89:D8:D7:48:EC:D4:DA:FF:05:FF:C8:2C"
+      ]
+    }
+  }
+]

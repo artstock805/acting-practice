@@ -259,3 +259,23 @@ test('the speech language comes from X-Speech-Lang and only Korean or English ar
   });
   assert.deepStrictEqual(langs, ['en-US', 'ko-KR', 'ko-KR', 'ko-KR']);
 });
+
+test('the Android app link file and APK are served, other JSON files are not', async () => {
+  await withServer({}, async (base) => {
+    const links = await fetch(`${base}/.well-known/assetlinks.json`);
+    assert.strictEqual(links.status, 200);
+    assert.match(links.headers.get('content-type'), /^application\/json/);
+    const [entry] = await links.json();
+    assert.strictEqual(entry.target.package_name, 'com.artstock805.actingpractice');
+    assert.match(entry.target.sha256_cert_fingerprints[0], /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
+
+    const apk = await fetch(`${base}/download/acting-practice.apk`);
+    assert.strictEqual(apk.status, 200);
+    assert.strictEqual(apk.headers.get('content-type'), 'application/vnd.android.package-archive');
+    assert.match(apk.headers.get('content-disposition'), /attachment; filename="acting-practice.apk"/);
+    assert.ok((await apk.arrayBuffer()).byteLength > 100_000);
+
+    assert.strictEqual((await fetch(`${base}/package.json`)).status, 404);
+    assert.strictEqual((await fetch(`${base}/android.html`)).status, 200);
+  });
+});
