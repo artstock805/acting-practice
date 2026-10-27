@@ -233,3 +233,14 @@ test('the word view and scoring of a line ignore its in-line directions (incl. f
   assert.ok(K.wordDiff(line, said).some((w) => !w.ok));                 // 예전: 지문 낱말이 빨간 '틀림'으로 표시됨
   assert.strictEqual(K.similarity(K.spokenText('그럼（웃으며）가자'), '그럼 가자'), 1);
 });
+
+test('each line is recognized in its own language, falling back to the script language', () => {
+  assert.strictEqual(K.lineLanguage('늦었네. 어디 갔다 왔어?', 'en'), 'ko');
+  assert.strictEqual(K.lineLanguage('Where have you been?', 'ko'), 'en');
+  assert.strictEqual(K.lineLanguage('OK, 알았어.', 'en'), 'ko');           // 한국어 대사 속 영어 낱말
+  assert.strictEqual(K.lineLanguage('Wait — 잠깐만!', 'en'), 'ko');
+  assert.strictEqual(K.lineLanguage('Hmm, I think 사랑 is the word.', 'ko'), 'en');
+  assert.strictEqual(K.lineLanguage('…', 'en'), 'en');                      // 글자가 없으면 대본 언어
+  assert.strictEqual(K.lineLanguage('…', 'ko'), 'ko');
+  assert.strictEqual(K.lineLanguage('20!', 'ko'), 'ko');
+});

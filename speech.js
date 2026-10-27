@@ -98,10 +98,11 @@
   // onInterim(text) 실시간 표시용, shouldStopEarly(text) 충분히 맞으면 바로 종료
   // silenceMs: 말이 끝났다고 볼 침묵 길이 (대사가 길거나 '...'이 있으면 더 길게 넘겨 받음)
   // pickAlternative(지금까지 말한 내용, 후보들) → 인식 후보 중 대사와 가장 가까운 것을 고름
-  function listen({ onInterim, shouldStopEarly, silenceMs = SILENCE_MS, pickAlternative } = {}) {
+  // lang: 이 대사를 알아들을 언어 ('ko-KR' | 'en-US', 없으면 대본 언어)
+  function listen({ onInterim, shouldStopEarly, silenceMs = SILENCE_MS, pickAlternative, lang: lineLang } = {}) {
     if (!Recognition) return { promise: Promise.reject(new Error('unsupported')), stop() {} };
     const rec = new Recognition();
-    rec.lang = lang;
+    rec.lang = lineLang === 'en-US' || lineLang === 'ko-KR' ? lineLang : lang;
     rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = ALTERNATIVES;
