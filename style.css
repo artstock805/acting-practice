@@ -308,3 +308,23 @@ body.practice-mode .range-bar { flex: none; }
   .stats-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .range-bar .ghost { min-height: 36px; }
 }
+
+/* 상대 배역 얼굴: 무대 오른쪽, 말할 때 목소리 크기(--level)에 맞춰 커지고 빛남 */
+.avatar { --level: 0; position: absolute; right: 14px; bottom: 10px; z-index: 1; height: 84%; aspect-ratio: 1; overflow: hidden;
+  border: 2px solid var(--line); border-radius: 50%; background: #0009; animation: breathe 4s ease-in-out infinite; transition: border-color 150ms; }
+.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.avatar.cartoon { border-radius: 18px; background: #ffffff14; }
+.avatar.cartoon img { object-fit: contain; }
+.avatar.talking { animation: none; border-color: var(--spot);
+  box-shadow: 0 0 calc(6px + var(--level) * 28px) color-mix(in srgb, var(--spot) 70%, transparent);
+  transform: scale(calc(1 + var(--level) * 0.06)) translateY(calc(var(--level) * -3px)); }
+@keyframes breathe { 50% { transform: scale(1.015); } }
+.stage.has-avatar .stage-emoji { display: none; }
+.stage.has-avatar .stage-overlay { padding-right: 54%; }
+.cast-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cast-name input { min-width: 0; }
+.cast-face { width: 36px; height: 36px; flex: none; border-radius: 50%; object-fit: cover; background: #ffffff14; }
+@media (max-width: 640px) {
+  body.practice-mode .stage.has-avatar { height: clamp(150px, 24vh, 210px); }
+  .avatar { height: 72%; right: 10px; }
+}

@@ -14,6 +14,7 @@
   const LV = window.LibraryView;
   const PP = window.PracticePlan;
   const SV = window.StatsView;
+  const AV = window.Avatars;
   const LOG = window.PracticeLog.createLog();
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   // 대본 언어: state.lang = 'ko' | 'en' (자동 판별 또는 선택), state.langChoice = 'auto' | 'ko' | 'en'
@@ -22,7 +23,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v40';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v41';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -35,11 +36,12 @@
   const NOTE_PHONE_LOCAL = '📱 휴대폰에서는 음성 채점과 녹음을 동시에 할 수 없어, 채점을 우선하고 녹음은 하지 않습니다. 녹음해서 다시 들으려면 PC에서 연습하세요.';
   const NOTE_PHONE_CLOUD = '📱 휴대폰에서는 녹음을 서버로 보내 채점합니다. 말을 마치면 1~2초 뒤에 결과가 나와요. 녹음을 끄면 휴대폰 내장 인식으로 바로 채점합니다.';
 
-  let state = loadState() || { text: '', items: [], cast: {}, opts: { mode: 'hint', threshold: 70, keepGoing: DEFAULT_KEEP_GOING, rate: 1, directions: false, aiImage: false, record: true, range: 'all', loop: false }, index: 0, results: {}, lineStats: {} };
+  let state = loadState() || { text: '', items: [], cast: {}, opts: { mode: 'hint', threshold: 70, keepGoing: DEFAULT_KEEP_GOING, rate: 1, directions: false, aiImage: false, record: true, range: 'all', loop: false, avatar: 'off' }, index: 0, results: {}, lineStats: {} };
   let runToken = 0;
   let listener = null;
   let waiting = false;
   let currentImgScene = null;
+  let avatarStage = null;  // 무대 위 상대 배역 얼굴 (Avatars.createStage)
   let takes = {};  // 대사 index → 녹음 blob URL (용량 때문에 저장하지 않고 이 창에서만 유지)
 
   // ---------- 저장 ----------
@@ -180,7 +182,11 @@
       const preview = el('button', { className: 'ghost', textContent: '🔊', title: '미리 듣기' });
       preview.onclick = () => previewVoice(name);
 
-      const cells = [mine, nameInput, document.createTextNode(String(lines)), voiceControls(name, cfg, voices, clashes.has(name)), preview];
+      const face = cfg.mine ? null : avatarFor(name);
+      const nameCell = face ? el('span', { className: 'cast-name' }) : nameInput;
+      if (face) nameCell.append(el('img', { className: 'cast-face', src: face.src, alt: '' }), nameInput);
+
+      const cells = [mine, nameCell, document.createTextNode(String(lines)), voiceControls(name, cfg, voices, clashes.has(name)), preview];
       cells.forEach((n) => { const td = el('td'); td.append(n); tr.append(td); });
       body.append(tr);
     });
@@ -365,21 +371,24 @@
     $('opt-rate').value = o.rate;
     $('opt-directions').checked = o.directions;
     $('opt-ai-image').checked = o.aiImage;
+    $('opt-avatar').value = o.avatar || 'off';
     const recordLocked = RECORD_BLOCKS_SCORING && !cloudReady;
     $('opt-record').checked = o.record !== false && !recordLocked;
     $('opt-record').disabled = recordLocked;
     $('opt-record-note').hidden = !RECORD_BLOCKS_SCORING;
     $('opt-record-note').textContent = cloudReady ? NOTE_PHONE_CLOUD : NOTE_PHONE_LOCAL;
     const sync = () => {
-      update({ opts: { mode: $('opt-mode').value, threshold: +$('opt-threshold').value, keepGoing: +$('opt-keep-going').value, rate: +$('opt-rate').value,
-        directions: $('opt-directions').checked, aiImage: $('opt-ai-image').checked,
+      const avatarChanged = $('opt-avatar').value !== (state.opts.avatar || 'off');
+      update({ opts: { ...state.opts, mode: $('opt-mode').value, threshold: +$('opt-threshold').value, keepGoing: +$('opt-keep-going').value, rate: +$('opt-rate').value,
+        directions: $('opt-directions').checked, aiImage: $('opt-ai-image').checked, avatar: $('opt-avatar').value,
         record: recordLocked ? o.record : $('opt-record').checked } });  // 휴대폰에서 강제로 끈 건 저장하지 않음
+      if (avatarChanged) renderCast();
       $('opt-threshold-val').textContent = state.opts.threshold + '%';
       $('opt-keep-going-val').textContent = state.opts.keepGoing + '%';
       $('opt-rate-val').textContent = state.opts.rate.toFixed(1) + '×';
       if (!$('opt-record').checked) R.release();  // 녹음을 끄면 열어 둔 마이크도 바로 놓아 줌
     };
-    ['opt-mode', 'opt-threshold', 'opt-keep-going', 'opt-rate', 'opt-directions', 'opt-ai-image', 'opt-record'].forEach((id) => { $(id).oninput = sync; $(id).onchange = sync; });
+    ['opt-mode', 'opt-threshold', 'opt-keep-going', 'opt-rate', 'opt-directions', 'opt-ai-image', 'opt-avatar', 'opt-record'].forEach((id) => { $(id).oninput = sync; $(id).onchange = sync; });
     sync();
     bindOptionHelp();
   }
@@ -524,6 +533,7 @@
   function stopPlayback() {
     runToken++;
     waiting = false;
+    if (avatarStage) avatarStage.talk(false);
     S.stopSpeaking();
     R.release();  // 연습을 멈추면 마이크를 놓아 다른 앱·음성 인식이 쓸 수 있게 함
     R.stopPlaying();
@@ -849,6 +859,7 @@
     setRetryButtons(false);
     $('btn-my-take').hidden = !takes[state.index];
     updateStage(item);
+    showAvatar(item);
     $('progress-bar').style.width = ((state.index + 1) / state.items.length) * 100 + '%';
     updateCounter();
     markCurrentRow();
@@ -912,6 +923,31 @@
     updateStageImage(item.scene, mood);
   }
 
+  // ---------- 상대 배역 얼굴 (AI 초상화·만화 아바타) ----------
+  const isOtherLine = (item) => !!item && item.type === 'line' && !(state.cast[item.character] && state.cast[item.character].mine);
+
+  // 옵션·배역 분석(성별·나이·영어 외모 묘사)·목소리 성별로 얼굴 그림 주소를 정함. 끄면 null
+  function avatarFor(name) {
+    const style = state.opts.avatar;
+    const cfg = state.cast[name];
+    if (!cfg || !style || style === 'off') return null;
+    const voice = cfg.cloudVoice ? VC.getVoice(cfg.cloudVoice) : null;
+    const who = { name, profile: cfg.profile || null, voiceGender: voice ? voice.gender : undefined, lang: scriptLang() };
+    if (style === 'cartoon') {
+      const look = AV.cartoonOptions(who);
+      return { src: AV.cartoonUrl(look, false), openSrc: AV.cartoonUrl(look, true), label: name };
+    }
+    return { src: AV.portraitUrl(AV.portraitPrompt(who), AV.seedOf(name)), label: name };
+  }
+
+  // 상대 대사면 그 배역 얼굴, 내 대사·지문 동안은 마지막 상대 얼굴을 그대로 (듣는 표정), 장면이 바뀌면 숨김
+  function showAvatar(item) {
+    if (!avatarStage) return;
+    if (isOtherLine(item)) avatarStage.show(avatarFor(item.character));
+    else if (item.type === 'scene' || state.opts.avatar === 'off') avatarStage.hide();
+    $('stage').classList.toggle('has-avatar', !$('stage').querySelector('.avatar').hidden);
+  }
+
   // 무료·무키 이미지 생성 서비스(Pollinations). 옵션을 켰을 때만 장면 제목을 전송
   function updateStageImage(scene, mood) {
     const img = $('stage-img');
@@ -964,6 +1000,7 @@
 
   // 지금 줄이 무엇을 하는 중인지 목록에도 표시: 상대역이 읽는 중(speaking) · 내가 말할 차례(listening)
   function setRowPhase(phase) {
+    if (avatarStage) avatarStage.talk(phase === 'speaking' && isOtherLine(state.items[state.index]));
     const cur = transcriptRows.get(state.index);
     if (!cur) return;
     cur.classList.toggle('speaking', phase === 'speaking');
@@ -1229,6 +1266,7 @@
   }
 
   function init() {
+    avatarStage = AV.createStage($('stage'), { getLevel: () => (CT.level ? CT.level() : null) });
     $('script-input').value = state.text || '';
     $('opt-lang').value = state.langChoice || 'auto';
     S.setLanguage(speechLocale());

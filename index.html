@@ -114,6 +114,14 @@
         <label><input id="opt-record" type="checkbox" checked> 내 대사 녹음하기 <small>(이 창을 닫으면 사라짐)</small></label>
         <p id="opt-record-note" class="note" hidden></p>
         <label><input id="opt-ai-image" type="checkbox"> AI 장면 이미지 생성 <small>(장면 제목이 외부 이미지 서비스로 전송됨)</small></label>
+        <label>상대 배역 얼굴
+          <select id="opt-avatar">
+            <option value="off">끄기</option>
+            <option value="portrait">🎨 AI 초상화</option>
+            <option value="cartoon">🙂 만화 아바타</option>
+          </select>
+          <small>(말할 때 움직임. 배역의 성별·나이·영어 외모 묘사가 외부 그림 서비스로 전송됨)</small>
+        </label>
       </fieldset>
       <div class="row"><span class="spacer"></span><button id="btn-to-practice" class="primary">연습 시작 →</button></div>
     </section>
@@ -207,6 +215,7 @@
   <script src="practiceplan.js"></script>
   <script src="practicelog.js"></script>
   <script src="statsview.js"></script>
+  <script src="avatars.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

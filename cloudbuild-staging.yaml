@@ -1,0 +1,47 @@
+# 시험(staging) 배포: 테스트 → 이미지 빌드 → 같은 Cloud Run 서비스에 '손님 0%' 버전으로 올림
+# 실제 사용자는 그대로 지금 버전을 쓰고, 시험 버전은 staging 태그 주소(https://staging---…run.app)로만 열림
+# 실행: gcloud builds submit --config cloudbuild-staging.yaml --project=acting-practice --region=asia-northeast3 .
+# 확인이 끝나면 PR을 main에 병합 → cloudbuild.yaml이 실제로 배포하고 손님을 최신 버전으로 돌림
+substitutions:
+  _REGION: asia-northeast3
+  _SERVICE: acting-practice
+  _IMAGE: asia-northeast3-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/acting-practice
+  _RUN_SA: acting-practice-run@${PROJECT_ID}.iam.gserviceaccount.com
+
+steps:
+  - id: test
+    name: node:22-alpine
+    entrypoint: node
+    args: ['--test']
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args: ['build', '-t', '${_IMAGE}:staging-${BUILD_ID}', '.']
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '${_IMAGE}:staging-${BUILD_ID}']
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_IMAGE}:staging-${BUILD_ID}
+      - --region=${_REGION}
+      - --service-account=${_RUN_SA}
+      - --memory=256Mi
+      - --max-instances=3
+      - --concurrency=20
+      - --set-secrets=ANTHROPIC_API_KEY=anthropic-api-key:latest
+      - --no-traffic   # 실제 사용자에게는 보내지 않음
+      - --tag=staging  # 이 버전만 여는 주소: https://staging---<서비스 주소>
+      - --quiet
+
+serviceAccount: projects/${PROJECT_ID}/serviceAccounts/acting-practice-build@${PROJECT_ID}.iam.gserviceaccount.com
+options:
+  logging: CLOUD_LOGGING_ONLY
+  dynamicSubstitutions: true
+timeout: 900s

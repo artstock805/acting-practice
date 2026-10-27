@@ -39,6 +39,12 @@ steps:
       - --set-secrets=ANTHROPIC_API_KEY=anthropic-api-key:latest
       - --quiet
 
+  # 시험 배포(cloudbuild-staging.yaml, --no-traffic)를 한 뒤에는 손님이 예전 버전에 묶여 있으므로, 실제 배포는 항상 최신 버전으로 돌림
+  - id: route-to-latest
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args: ['run', 'services', 'update-traffic', '${_SERVICE}', '--to-latest', '--region=${_REGION}', '--quiet']
+
 serviceAccount: projects/${PROJECT_ID}/serviceAccounts/acting-practice-build@${PROJECT_ID}.iam.gserviceaccount.com
 options:
   logging: CLOUD_LOGGING_ONLY

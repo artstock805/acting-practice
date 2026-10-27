@@ -93,6 +93,7 @@
       throw err;
     }
     if (token !== playToken) return;
+    envelopeOf(url).then((env) => { if (token === playToken) currentEnvelope = env; });
     const p = getPlayer();
     let watchdog = null;
     try {
@@ -112,9 +113,49 @@
 
   function stop() {
     playToken++;
+    currentEnvelope = null;
     if (player) { player.onended = null; player.onerror = null; player.pause(); }
     if (finishCurrent) { finishCurrent(); finishCurrent = null; }
   }
 
-  root.CloudTTS = { available, speak, prefetch, stop, unlock };
+  // ---------- 목소리 크기 (아바타 입 모양·움직임용) ----------
+  // 재생 소리를 건드리지 않게(휴대폰에서 소리가 끊기지 않게) 같은 파일을 따로 풀어 50ms마다 크기를 미리 계산해 둠
+  const LEVEL_STEP_S = 0.05;
+  const ENVELOPE_MAX = 40;
+  const envelopes = new Map();   // blob URL → Promise<Float32Array | null>
+  let currentEnvelope = null;
+
+  function envelopeOf(url) {
+    if (!envelopes.has(url)) {
+      const Offline = root.OfflineAudioContext || root.webkitOfflineAudioContext;
+      const pending = !Offline ? Promise.resolve(null) : fetch(url).then((r) => r.arrayBuffer())
+        .then((buf) => new Offline(1, 1, 44100).decodeAudioData(buf))
+        .then((audio) => {
+          const data = audio.getChannelData(0);
+          const step = Math.max(1, Math.round(audio.sampleRate * LEVEL_STEP_S));
+          const levels = new Float32Array(Math.ceil(data.length / step));
+          levels.forEach((_, i) => {
+            let sum = 0;
+            const end = Math.min(data.length, (i + 1) * step);
+            for (let j = i * step; j < end; j++) sum += data[j] * data[j];
+            levels[i] = Math.sqrt(sum / Math.max(1, end - i * step));
+          });
+          const loudest = Math.max(1e-6, ...levels);
+          return levels.map((v) => Math.sqrt(v / loudest));   // 0~1, 작은 소리도 보이게 살짝 키움
+        })
+        .catch(() => null);
+      envelopes.set(url, pending);
+      if (envelopes.size > ENVELOPE_MAX) envelopes.delete(envelopes.keys().next().value);
+    }
+    return envelopes.get(url);
+  }
+
+  // 지금 재생 중인 목소리 크기 0~1. 재생 중이 아니거나 아직 모르면 null
+  function level() {
+    if (!player || player.paused || !currentEnvelope) return null;
+    const v = currentEnvelope[Math.floor(player.currentTime / LEVEL_STEP_S)];
+    return v === undefined ? 0 : v;
+  }
+
+  root.CloudTTS = { available, speak, prefetch, stop, unlock, level };
 })(this);
