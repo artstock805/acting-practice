@@ -16,8 +16,10 @@
   // 대본 언어: state.lang = 'ko' | 'en' (자동 판별 또는 선택), state.langChoice = 'auto' | 'ko' | 'en'
   const scriptLang = () => (state.lang === 'en' ? 'en' : 'ko');
   const speechLocale = () => VC.localeOf(scriptLang());
+  // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
+  const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v38';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v39';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -559,6 +561,7 @@
     if (token !== runToken) { R.discard(); return 'wait'; }
     setMic((recording ? '⏺ 녹음 중 · ' : '') + '듣고 있어요… 대사를 말해 주세요.', true);
     listener = S.listen({
+      lang: lineLocale(item),
       onInterim: (t) => setMic('🎙 ' + t, true),
       shouldStopEarly: (t) => K.similarity(speechOf(item), t) >= Math.max(threshold, 0.9),
       silenceMs: K.silenceForLine(speechOf(item)),
@@ -582,7 +585,7 @@
   async function listenViaServer(item, token, threshold) {
     setMic('⏺ 녹음 중 · 듣고 있어요… 대사를 말해 주세요.', true);
     listener = C.listen({
-      lang: speechLocale(),
+      lang: lineLocale(item),
       hint: speechOf(item),
       silenceMs: K.silenceForLine(speechOf(item)),
       onPhase: (phase, ms) => {
@@ -1119,18 +1122,23 @@
     library.open();
   }
 
-  function pickLibraryScript({ text, lang, title, custom }) {
+  // 대본 언어는 '자동 감지'로 둠 (영어 작품을 불러온 뒤 한국어 대본을 넣어도 영어로 굳지 않게)
+  function pickLibraryScript({ text, title, custom }) {
     $('script-input').value = text;
-    $('opt-lang').value = lang;
+    $('opt-lang').value = 'auto';
     showDetectedLanguage();
     setImportStatus(`✅ 「${title}」을(를) 불러왔어요${custom ? '' : ' (공개 저작물)'}. 내용을 확인하고 '대본 분석'을 누르세요.`);
   }
 
-  // '자동 감지'일 때 지금 대본이 어떤 언어로 보이는지 옆에 알려 줌
+  // '자동 감지'일 때 지금 대본이 어떤 언어로 보이는지 옆에 알려 줌. 직접 고른 언어가 대본과 다르면 알려 줌
   function showDetectedLanguage() {
     const choice = $('opt-lang').value;
     const text = $('script-input').value;
-    $('lang-detected').textContent = choice === 'auto' && text.trim() ? `→ ${K.detectLanguage(text) === 'en' ? 'English' : '한국어'}` : '';
+    const detected = text.trim() ? K.detectLanguage(text) : '';
+    const label = (lang) => (lang === 'en' ? 'English' : '한국어');
+    $('lang-detected').textContent = !detected ? ''
+      : choice === 'auto' ? `→ ${label(detected)}`
+        : choice !== detected ? `⚠ 대본은 ${label(detected)}로 보여요. '자동 감지'로 바꿔 주세요` : '';
   }
 
   function init() {

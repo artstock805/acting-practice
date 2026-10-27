@@ -68,9 +68,15 @@
 
   // 대본 언어: 한글이 영어 글자의 1/3도 안 되면 영어 대본 (한국어 대본 속 영어 낱말·이름은 한국어로 봄)
   function detectLanguage(text) {
+    return lineLanguage(text, 'ko');
+  }
+
+  // 대사 한 줄의 언어 (음성 인식용): 같은 기준으로 그 줄 글자만 봄. 글자가 없으면(…, 숫자만) 대본 언어
+  function lineLanguage(text, fallback) {
     const s = String(text || '');
     const hangul = (s.match(/[가-힣]/g) || []).length;
     const latin = (s.match(/[A-Za-z]/g) || []).length;
+    if (!hangul && !latin) return fallback === 'en' ? 'en' : 'ko';
     return latin > hangul * 3 ? 'en' : 'ko';
   }
 
@@ -511,7 +517,7 @@
   function detectMood(text) { return findByWords(MOODS, text); }
   function detectEmotion(text) { return findByWords(EMOTIONS, text); }
 
-  const api = { parseScript, detectLanguage, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, firstLetterHint, detectMood, detectEmotion, normalize };
+  const api = { parseScript, detectLanguage, lineLanguage, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, firstLetterHint, detectMood, detectEmotion, normalize };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ScriptKit = api;
 })(this);
