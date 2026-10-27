@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v42';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v43';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -376,14 +376,14 @@
     $('opt-rate').value = o.rate;
     $('opt-directions').checked = o.directions;
     $('opt-ai-image').checked = o.aiImage;
-    $('opt-avatar').value = o.avatar || 'off';
+    $('opt-avatar').value = avatarStyle();
     const recordLocked = RECORD_BLOCKS_SCORING && !cloudReady;
     $('opt-record').checked = o.record !== false && !recordLocked;
     $('opt-record').disabled = recordLocked;
     $('opt-record-note').hidden = !RECORD_BLOCKS_SCORING;
     $('opt-record-note').textContent = cloudReady ? NOTE_PHONE_CLOUD : NOTE_PHONE_LOCAL;
     const sync = () => {
-      const avatarChanged = $('opt-avatar').value !== (state.opts.avatar || 'off');
+      const avatarChanged = $('opt-avatar').value !== avatarStyle();
       update({ opts: { ...state.opts, mode: $('opt-mode').value, threshold: +$('opt-threshold').value, keepGoing: +$('opt-keep-going').value, rate: +$('opt-rate').value,
         directions: $('opt-directions').checked, aiImage: $('opt-ai-image').checked, avatar: $('opt-avatar').value,
         record: recordLocked ? o.record : $('opt-record').checked } });  // 휴대폰에서 강제로 끈 건 저장하지 않음
@@ -932,18 +932,20 @@
   const isOtherLine = (item) => !!item && item.type === 'line' && !(state.cast[item.character] && state.cast[item.character].mine);
 
   // 옵션·배역 분석(성별·나이·영어 외모 묘사)·목소리 성별로 얼굴 그림 주소를 정함. 끄면 null
+  // 얼굴 모양 옵션: 끄기 / portrait(사실풍) / anime(지브리풍). 예전의 '만화 아바타'(cartoon)는 지브리풍으로 바꿈
+  const avatarStyle = () => (state.opts.avatar === 'cartoon' ? 'anime' : state.opts.avatar || 'off');
+
   // urgent: 지금 말하는 배역이면 초상화를 먼저 받음
   function avatarFor(name, { urgent = false } = {}) {
-    const style = state.opts.avatar;
+    const style = avatarStyle();
     const cfg = state.cast[name];
     if (!cfg || !style || style === 'off') return null;
     const voice = cfg.cloudVoice ? VC.getVoice(cfg.cloudVoice) : null;
     const who = { name, profile: cfg.profile || null, voiceGender: voice ? voice.gender : undefined, lang: scriptLang() };
     const look = AV.cartoonOptions(who);
     const cartoon = { src: AV.cartoonUrl(look, false), openSrc: AV.cartoonUrl(look, true), label: name };
-    if (style === 'cartoon') return cartoon;
-    // AI 초상화: 받아 둔 게 있으면 그것, 아니면 받는 동안 만화 얼굴로 대신 (입도 움직임)
-    const portrait = AV.portraitUrl(AV.portraitPrompt(who), AV.seedOf(name));
+    // AI 초상화(사실풍·애니메이션풍): 받아 둔 게 있으면 그것, 아니면 받는 동안 만화 얼굴로 대신 (입도 움직임)
+    const portrait = AV.portraitUrl(AV.portraitPrompt({ ...who, style: style === 'anime' ? 'anime' : 'realistic' }), AV.seedOf(name));
     const ready = PQ.ready(portrait);
     if (ready) return { src: ready, label: name, portrait };
     PQ.request(portrait, { urgent }).catch(() => { /* 못 받으면 만화 얼굴 그대로 */ });
@@ -964,7 +966,7 @@
   function showAvatar(item) {
     if (!avatarStage) return;
     if (isOtherLine(item)) avatarStage.show(avatarFor(item.character, { urgent: true }));
-    else if (item.type === 'scene' || state.opts.avatar === 'off') avatarStage.hide();
+    else if (item.type === 'scene' || avatarStyle() === 'off') avatarStage.hide();
     $('stage').classList.toggle('has-avatar', !$('stage').querySelector('.avatar').hidden);
   }
 

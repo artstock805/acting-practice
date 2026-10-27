@@ -48,3 +48,14 @@ test('cartoon avatars follow gender and age, and only the mouth changes while ta
   // 성별을 모르면 목소리 성별로
   assert.ok(A.MALE_TOPS.includes(A.cartoonOptions({ name: 'X', profile: null, voiceGender: 'male' }).top));
 });
+
+test('the anime style asks for a hand-drawn animated film look instead of a realistic painting', () => {
+  const anime = A.portraitPrompt({ profile: JIYEON, lang: 'ko', style: 'anime' });
+  assert.match(anime, /hand-drawn/);
+  assert.match(anime, /animated film/);
+  assert.match(anime, /watercolor/);
+  assert.doesNotMatch(anime, /realistic/);
+  assert.doesNotMatch(anime, /Ghibli/i);   // 특정 스튜디오 이름은 넣지 않음
+  assert.match(anime, /tired eyes, wet hair, beige trench coat/);
+  assert.match(A.portraitPrompt({ profile: JIYEON, lang: 'ko' }), /realistic/);   // 기본은 그대로
+});
