@@ -24,6 +24,7 @@ const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.webmanifest': 'application/manifest+json; charset=utf-8', '.png': 'image/png', '.ico': 'image/x-icon', '.svg': 'image/svg+xml',
   '.mjs': 'application/javascript; charset=utf-8', '.bcmap': 'application/octet-stream',   // PDF 읽기(pdf.js) 모듈·한글 글자표
+  '.json': 'application/json', '.apk': 'application/vnd.android.package-archive',   // 안드로이드 앱 인증 파일(/.well-known/)·앱 설치 파일
 };
 const NO_CACHE = new Set(['.html', '.js', '.css', '.webmanifest']);  // 코드 파일은 매번 새로 확인 (수정 사항 바로 반영)
 const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.webmanifest', '.mjs', '.svg']);  // 글자 파일만 압축 (png·bcmap은 이미 압축됨)
@@ -238,10 +239,13 @@ async function serveStatic(req, res) {
   const file = path.resolve(ROOT, '.' + rel);
   const ext = path.extname(file).toLowerCase();
   // 앱 폴더 밖, 허용하지 않은 파일 형식, 서버·테스트 코드는 보여 주지 않음
+  // JSON은 안드로이드 앱 인증 파일(/.well-known/)만 (package.json 등은 숨김)
   if (!file.startsWith(ROOT + path.sep) || !MIME[ext] || /(^|[\\/])(server|.*\.test)\.js$/.test(file)) return send(res, 404, 'Not found');
+  if (ext === '.json' && !rel.startsWith('/.well-known/')) return send(res, 404, 'Not found');
   let entry;
   try { entry = await loadStatic(file); } catch { return send(res, 404, 'Not found'); }
   const headers = { 'Content-Type': MIME[ext], 'Cache-Control': NO_CACHE.has(ext) ? 'no-cache' : ASSET_MAX_AGE, ETag: entry.etag };
+  if (ext === '.apk') headers['Content-Disposition'] = `attachment; filename="${path.basename(file)}"`;
   if (COMPRESSIBLE.has(ext)) headers.Vary = 'Accept-Encoding';
   if (etagMatches(req.headers['if-none-match'], entry.etag)) return send(res, 304, undefined, headers);
   const encoding = COMPRESSIBLE.has(ext) ? pickEncoding(req.headers['accept-encoding']) : null;
