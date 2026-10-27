@@ -283,3 +283,28 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
   .source-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .script-actions #btn-parse { flex: 1 1 100%; }
 }
+
+/* 연습 범위·반복·기록 */
+.range-bar { margin-top: 10px; gap: 8px; flex-wrap: nowrap; }
+.range-pick { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 0.9rem; white-space: nowrap; }
+.range-pick select { flex: 1 1 auto; min-width: 0; max-width: 280px; padding: 6px 8px; }
+.loop-pick { display: flex; align-items: center; gap: 4px; font-size: 0.9rem; white-space: nowrap; }
+.range-bar .ghost { padding: 6px 12px; white-space: nowrap; }
+body.practice-mode .range-bar { flex: none; }
+.stats-dialog { width: min(560px, calc(100% - 32px)); text-align: left; }
+.stats-body h2 { text-align: center; }
+.stats-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.stats-tile { display: grid; gap: 4px; padding: 10px; text-align: center; background: var(--stage); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.stats-tile b { font-size: 1.15rem; }
+.stats-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; height: 130px; }
+.stats-day { display: grid; grid-template-rows: auto 1fr auto; gap: 4px; text-align: center; }
+.stats-track { display: flex; align-items: flex-end; background: var(--stage); border-radius: 6px; overflow: hidden; }
+.stats-bar { width: 100%; background: var(--spot); border-radius: 6px 6px 0 0; }
+.stats-count { min-height: 1.2em; color: var(--muted); font-size: 0.8rem; }
+.stats-weak { margin: 0; padding-left: 20px; line-height: 1.7; }
+.stats-words { display: flex; flex-wrap: wrap; gap: 6px; }
+.stats-word { padding: 4px 10px; background: var(--stage); border: 1px solid var(--line); border-radius: 999px; font-size: 0.9rem; }
+@media (max-width: 640px) {
+  .stats-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .range-bar .ghost { min-height: 36px; }
+}

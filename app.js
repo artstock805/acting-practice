@@ -12,6 +12,9 @@
   const CT = window.CloudTTS;
   const IV = window.InsightView;
   const LV = window.LibraryView;
+  const PP = window.PracticePlan;
+  const SV = window.StatsView;
+  const LOG = window.PracticeLog.createLog();
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   // 대본 언어: state.lang = 'ko' | 'en' (자동 판별 또는 선택), state.langChoice = 'auto' | 'ko' | 'en'
   const scriptLang = () => (state.lang === 'en' ? 'en' : 'ko');
@@ -19,7 +22,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v39';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v40';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -32,7 +35,7 @@
   const NOTE_PHONE_LOCAL = '📱 휴대폰에서는 음성 채점과 녹음을 동시에 할 수 없어, 채점을 우선하고 녹음은 하지 않습니다. 녹음해서 다시 들으려면 PC에서 연습하세요.';
   const NOTE_PHONE_CLOUD = '📱 휴대폰에서는 녹음을 서버로 보내 채점합니다. 말을 마치면 1~2초 뒤에 결과가 나와요. 녹음을 끄면 휴대폰 내장 인식으로 바로 채점합니다.';
 
-  let state = loadState() || { text: '', items: [], cast: {}, opts: { mode: 'hint', threshold: 70, keepGoing: DEFAULT_KEEP_GOING, rate: 1, directions: false, aiImage: false, record: true }, index: 0, results: {} };
+  let state = loadState() || { text: '', items: [], cast: {}, opts: { mode: 'hint', threshold: 70, keepGoing: DEFAULT_KEEP_GOING, rate: 1, directions: false, aiImage: false, record: true, range: 'all', loop: false }, index: 0, results: {}, lineStats: {} };
   let runToken = 0;
   let listener = null;
   let waiting = false;
@@ -83,7 +86,10 @@
     const newOthers = chars.map((c) => c.name).filter((n) => cast[n].isNew && !cast[n].mine);
     const assigned = distributeAllVoices(newOthers, cast);
     Object.keys(cast).forEach((n) => { const { isNew, ...rest } = cast[n]; cast[n] = { ...rest, ...(assigned[n] || {}) }; });
-    update({ text, items, cast, index: 0, results: {}, mergeDismissed: [], insight: text === state.text ? state.insight : null });
+    // 같은 대본이면 대사별 점수 기록(약한 대사)은 남기고, 대본이 바뀌면 지우고 연습 범위도 전체로
+    const sameText = text === state.text;
+    update({ text, items, cast, index: 0, results: {}, mergeDismissed: [], insight: sameText ? state.insight : null,
+      lineStats: sameText ? state.lineStats || {} : {}, opts: sameText ? state.opts : { ...state.opts, range: 'all' } });
     renderCast();
     enableTabs();
     showView('cast');
@@ -481,24 +487,38 @@
     if (!myNames().length) { alert('내 역할을 하나 이상 체크해 주세요.'); return; }
     showView('practice');
     renderTranscript();
+    renderRangeOptions();
     renderItem(state.items[state.index] || state.items[0]);
     if (!S.canListen) setMic('⚠ 이 브라우저는 음성 인식을 지원하지 않습니다. Chrome·Edge·Safari를 쓰거나, 대사를 말한 뒤 ⏭를 누르세요.');
   }
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  // 연습 범위(전체·장면·약한 대사)를 차례로 진행. 반복이면 범위 끝에서 처음으로 (한 바퀴마다 범위를 다시 계산)
   async function play() {
     const token = ++runToken;
     waiting = false;
     setRetryButtons(false);
+    let plan = practicePlan();
+    const start = PP.startIndex(plan, state.index);
+    if (start < 0) { showNoWeakLines(); return; }
+    if (start !== state.index) { update({ index: start }); renderItem(state.items[start]); }
     $('btn-play').textContent = '⏸ 일시정지';
-    while (token === runToken && state.index < state.items.length) {
-      const outcome = await step(state.items[state.index], token);
-      if (token !== runToken) return;
-      if (outcome === 'wait') { waiting = true; $('btn-play').textContent = '▶ 계속'; return; }
-      update({ index: state.index + 1 });
+    const startedAt = Date.now();
+    try {
+      while (token === runToken) {
+        const outcome = await step(state.items[state.index], token);
+        if (token !== runToken) return;
+        if (outcome === 'wait') { waiting = true; $('btn-play').textContent = '▶ 계속'; return; }
+        let next = PP.nextIndex(plan, state.index, state.opts.loop);
+        if (next >= 0 && next <= state.index) { plan = practicePlan(); next = plan.length ? plan[0] : -1; }  // 한 바퀴 돎: 통과한 약한 대사는 빠짐
+        if (next < 0) break;
+        update({ index: next });
+      }
+      if (token === runToken) { update({ index: state.items.length }); finish(); }
+    } finally {
+      LOG.addTime(Date.now() - startedAt);
     }
-    if (token === runToken) finish();
   }
 
   function stopPlayback() {
@@ -628,6 +648,7 @@
   async function judgeLine(item, spoken, threshold, failDetail) {
     const score = K.similarity(speechOf(item), spoken);
     recordResult(state.index, score);
+    noteScore(item, spoken, score, threshold);
     showDiff(item, spoken, score);
     if (score >= threshold) { setMic('👏 좋아요!'); await sleep(700); return 'next'; }
     // 통과 기준에 못 미쳐도 '계속 진행 기준'을 넘으면 멈추지 않고 다음 대사로 (점수·틀린 곳은 남겨 두고 잠깐 보여 줌)
@@ -742,11 +763,69 @@
 
   function recordResult(index, score) { update({ results: { ...state.results, [index]: score } }); refreshTranscriptRow(index); }
 
+  // ---------- 연습 범위·기록 ----------
+  const isMineName = (name) => !!(state.cast[name] && state.cast[name].mine);
+  const weakIndexes = () => PP.weakLines(state.items, state.lineStats || {}, isMineName, state.opts.threshold / 100);
+  const practicePlan = () => PP.planIndexes(state.items, state.opts.range || 'all', { isMine: isMineName, weak: weakIndexes() });
+  const RANGE_TITLE_MAX = 18;
+
+  // 채점 결과를 대사별 기록(약한 대사 판단)과 날짜별 연습 기록에 남김
+  function noteScore(item, spoken, score, threshold) {
+    update({ lineStats: PP.addScore(state.lineStats || {}, state.index, score) });
+    const missed = K.wordDiff(speechOf(item), spoken).filter((w) => !w.ok).map((w) => w.word);
+    LOG.record({ score, passed: score >= threshold, missed });
+    renderRangeOptions();
+  }
+
+  function renderRangeOptions() {
+    const scenes = PP.scenesOf(state.items).map((s) => [s.key, s.title.length > RANGE_TITLE_MAX ? s.title.slice(0, RANGE_TITLE_MAX) + '…' : s.title]);
+    const options = [['all', '전체'], ...scenes, ['weak', `⚠ 약한 대사만 (${weakIndexes().length})`]];
+    $('opt-range').replaceChildren(...options.map(([value, label]) => el('option', { value, textContent: label })));
+    $('opt-range').value = options.some(([v]) => v === state.opts.range) ? state.opts.range : 'all';
+    $('opt-loop').checked = !!state.opts.loop;
+  }
+
+  function showNoWeakLines() {
+    renderLineCard({ who: '⚠ 약한 대사', note: '', text: '통과 기준보다 낮게 나온 대사가 없어요. 전체나 장면을 골라 연습해 보세요.', mine: false, hidden: false });
+  }
+
+  function setRange(range) {
+    stopPlayback();
+    update({ opts: { ...state.opts, range } });
+    renderRangeOptions();
+    const start = PP.startIndex(practicePlan(), state.index);
+    if (start < 0) { showNoWeakLines(); return; }
+    jumpTo(start, false);
+  }
+
+  // ⏭·통과 처리: 범위 안의 다음 항목으로 (범위 끝이면 반복하거나 끝냄)
+  function advance(resume) {
+    const next = PP.nextIndex(practicePlan(), state.index, state.opts.loop);
+    if (next < 0) { stopPlayback(); update({ index: state.items.length }); finish(); return; }
+    jumpTo(next, resume);
+  }
+
+  function openStats() {
+    const stats = state.lineStats || {};
+    const weak = weakIndexes().map((i) => ({ who: state.items[i].character, text: speechOf(state.items[i]), last: stats[i].last, tries: stats[i].tries }));
+    SV.render($('stats-dialog'), {
+      log: LOG,
+      weak,
+      onPracticeWeak: () => {
+        if (!$('view-practice').classList.contains('active')) goPractice();
+        setRange('weak');
+        play();
+      },
+    });
+  }
+
   function finish() {
     const scores = Object.values(state.results);
     const avg = scores.length ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) : 0;
     $('btn-play').textContent = '↺ 처음부터';
-    renderLineCard({ who: '🎬 끝', note: '', text: scores.length ? `수고했어요! 내 대사 ${scores.length}개, 평균 정확도 ${avg}%` : '수고했어요!', mine: false, hidden: false });
+    const weak = weakIndexes().length;
+    const summary = scores.length ? `수고했어요! 내 대사 ${scores.length}개, 평균 정확도 ${avg}%` : '수고했어요!';
+    renderLineCard({ who: '🎬 끝', note: '', text: summary + (weak ? ` · 약한 대사 ${weak}개는 '⚠ 약한 대사만'으로 다시 연습해 보세요` : ''), mine: false, hidden: false });
     setMic('');
   }
 
@@ -1027,14 +1106,22 @@
       const item = state.items[state.index];
       const resume = waiting || $('btn-play').textContent.startsWith('⏸');
       if (waiting && item && item.type === 'line' && !S.canListen) recordResult(state.index, 1);
-      jumpTo(state.index + 1, resume);
+      advance(resume);
     };
     $('btn-prev').onclick = () => jumpTo(nextLineIndex(state.index, -1), false);
     $('btn-retry').onclick = () => play();
     $('btn-reveal').onclick = () => revealLine(state.items[state.index]);
     $('btn-my-take').onclick = () => { if (takes[state.index]) R.play(takes[state.index]); };
     resetReplayButton();
-    $('btn-pass').onclick = () => { recordResult(state.index, 1); jumpTo(state.index + 1, true); };
+    $('btn-pass').onclick = () => {
+      recordResult(state.index, 1);
+      update({ lineStats: PP.addScore(state.lineStats || {}, state.index, 1) });  // 통과 처리한 대사는 약한 대사에서 빠짐
+      renderRangeOptions();
+      advance(true);
+    };
+    $('opt-range').onchange = (e) => setRange(e.target.value);
+    $('opt-loop').onchange = (e) => update({ opts: { ...state.opts, loop: e.target.checked } });
+    $('btn-stats').onclick = openStats;
     document.addEventListener('keydown', (e) => {
       const typing = ['TEXTAREA', 'INPUT', 'SELECT'].includes(document.activeElement.tagName);
       if (e.code === 'Space' && !typing && $('view-practice').classList.contains('active')) { e.preventDefault(); $('btn-next').click(); }
