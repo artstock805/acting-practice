@@ -124,15 +124,25 @@
       sections.scrollIntoView({ block: 'nearest' });
     }
 
-    // ➕ 다른 작품: 목록 사이트 열기 → 주소 복사 → 붙여 넣고 불러오기
-    function buildImport() {
-      const box = el('details', { className: 'library-more' }, el('summary', { textContent: '➕ 다른 작품 찾아서 불러오기' }));
-      const step = (n, text) => el('p', { className: 'library-step' }, el('b', { textContent: n + ' ' }), text);
+    const statusLine = () => {
+      const p = el('p', { className: 'note import-status', hidden: true });
+      const say = (text, isError) => { p.hidden = !text; p.textContent = text; p.classList.toggle('error', !!isError); };
+      return [p, say];
+    };
+    const howTo = (text) => el('p', { className: 'library-howto', textContent: text });
+    const openFileButton = () => {
+      const b = el('button', { className: 'primary', type: 'button', textContent: '📄 받은 파일 열기' });
+      b.hidden = !onOpenFile;
+      b.onclick = () => { dialog.close(); onOpenFile(); };
+      return b;
+    };
+
+    // 🔗 주소로: Gutenberg·위키문헌 목록 열기 → 작품 주소 복사 → 붙여 넣고 불러오기
+    function addressPanel() {
       const siteRow = el('div', { className: 'library-sites' });
       IMPORT_SITES.forEach((site) => siteRow.append(el('a', { className: 'library-site', href: site.url, target: '_blank', rel: 'noopener noreferrer', textContent: `${site.name} (${site.lang}) ↗` })));
-      const input = el('input', { type: 'url', className: 'library-address', placeholder: '예) https://www.gutenberg.org/ebooks/1524', inputMode: 'url', autocomplete: 'off' });
-      const importStatus = el('p', { className: 'note import-status', hidden: true });
-      const say = (text, isError) => { importStatus.hidden = !text; importStatus.textContent = text; importStatus.classList.toggle('error', !!isError); };
+      const input = el('input', { type: 'url', className: 'library-address', placeholder: '작품 주소 또는 Gutenberg 책 번호', inputMode: 'url', autocomplete: 'off' });
+      const [importStatus, say] = statusLine();
       const go = el('button', { className: 'primary', type: 'button', textContent: '불러오기' });
       const paste = el('button', { className: 'ghost', type: 'button', textContent: '📋 붙여넣기' });
       paste.hidden = !(navigator.clipboard && navigator.clipboard.readText);
@@ -146,51 +156,69 @@
         return load({ id, title: id.startsWith('gb-') ? `Gutenberg #${id.slice(3)}` : id.slice(3) }, go, say);
       };
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go.click(); } });
+      return el('div', {},
+        howTo('목록에서 작품을 고르고 → 주소를 복사해 → 아래에 붙여 넣으세요. (Gutenberg는 책 번호만 넣어도 돼요, 예: 1524)'),
+        siteRow,
+        el('div', { className: 'row library-import' }, input, paste, go),
+        importStatus);
+    }
+
+    // 📜 공유마당: 만료 희곡 목록 (많이 쓴 작가는 따로, 나머지는 묶음). 제목은 작품 페이지로, ⚡는 바로 불러오기
+    const GONGU_OWN_GROUP_MIN = 3;
+    function gonguPanel() {
+      const total = GONGU_PLAYS.reduce((n, [, list]) => n + list.length, 0);
+      const [playsStatus, sayPlays] = statusLine();
+      const quickRow = el('div', { className: 'library-sites' });
+      GONGU_PLAYS.forEach(([, list]) => list.filter(([, , quick]) => quick).forEach(([, title, quick]) => {
+        const now = el('button', { className: 'ghost library-play-quick', type: 'button', textContent: `⚡ ${title}` });
+        now.onclick = () => load({ id: quick, title }, now, sayPlays);
+        quickRow.append(now);
+      }));
+      const workLink = (id, title, author) => el('a', { className: 'library-play', href: gonguWorkUrl(id), target: '_blank', rel: 'noopener noreferrer', textContent: author ? `${title} (${author}) ↗` : `${title} ↗` });
+      const group = (label, links) => el('details', { className: 'library-author' }, el('summary', { textContent: label }), el('div', { className: 'library-play-list' }, ...links));
+      const big = GONGU_PLAYS.filter(([, list]) => list.length >= GONGU_OWN_GROUP_MIN);
+      const rest = GONGU_PLAYS.filter(([, list]) => list.length < GONGU_OWN_GROUP_MIN).flatMap(([author, list]) => list.map((w) => [author, ...w]));
+      const groups = el('div', { className: 'library-authors' },
+        ...big.map(([author, list]) => group(`${author} (${list.length}편)`, list.map(([id, title]) => workLink(id, title)))),
+        group(`그 밖의 작가 (${rest.length}편)`, rest.map(([author, id, title]) => workLink(id, title, author))));
+      return el('div', {},
+        el('p', { className: 'library-label', textContent: '⚡ 바로 불러오기' }),
+        quickRow,
+        playsStatus,
+        el('p', { className: 'library-label', textContent: `📜 저작권이 끝난 희곡 ${total}편 — 작가를 누르면 작품이 나와요` }),
+        howTo('제목을 누르면 공유마당 페이지가 열려요 → 「다운로드」 → 이 앱으로 돌아와 아래 버튼으로 여세요. (휴대폰은 보통 「다운로드」 폴더)'),
+        groups,
+        el('div', { className: 'row' }, openFileButton()));
+    }
+
+    // 📁 그 밖의 사이트: 파일로 받아 여는 곳
+    function filePanel() {
       const fileList = el('ul', {});
       FILE_SITES.forEach((site) => fileList.append(el('li', {}, el('a', { href: site.url, target: '_blank', rel: 'noopener noreferrer', textContent: site.name + ' ↗' }), ` — ${site.desc}`)));
-      const openFile = el('button', { className: 'primary', type: 'button', textContent: '📄 받은 파일 열기' });
-      openFile.hidden = !onOpenFile;
-      openFile.onclick = () => { dialog.close(); onOpenFile(); };
-      // 공유마당 만료 희곡 목록 (작가별). 제목은 작품 페이지로, 위키문헌·서재에 있는 작품은 바로 불러오기도
-      const total = GONGU_PLAYS.reduce((n, [, list]) => n + list.length, 0);
-      const playsBox = el('details', { className: 'library-plays' }, el('summary', { textContent: `📜 저작권이 끝난 희곡 ${total}편 목록 (작가별)` }));
-      const playsStatus = el('p', { className: 'note import-status', hidden: true });
-      const sayPlays = (text, isError) => { playsStatus.hidden = !text; playsStatus.textContent = text; playsStatus.classList.toggle('error', !!isError); };
-      playsBox.append(el('p', { className: 'note', textContent: '제목을 누르면 공유마당 작품 페이지가 열려요. ⚡ 표시는 파일 없이 바로 불러올 수 있어요.' }), playsStatus);
-      GONGU_PLAYS.forEach(([author, list]) => {
-        const works = el('div', { className: 'library-play-list' });
-        list.forEach(([id, title, quick]) => {
-          works.append(el('a', { className: 'library-play', href: gonguWorkUrl(id), target: '_blank', rel: 'noopener noreferrer', textContent: `${title} ↗` }));
-          if (!quick) return;
-          const now = el('button', { className: 'ghost library-play-quick', type: 'button', textContent: `⚡ ${title} 바로 불러오기` });
-          now.onclick = () => load({ id: quick, title }, now, sayPlays);
-          works.append(now);
-        });
-        playsBox.append(el('p', { className: 'library-step' }, el('b', { textContent: author }), ` (${list.length}편)`), works);
+      return el('div', {}, howTo('파일(한글·PDF·TXT)로 받아서 아래 버튼으로 여세요.'), fileList, el('div', { className: 'row' }, openFileButton()));
+    }
+
+    // ➕ 다른 작품: 가져오는 방법별 탭 (한 번에 하나만 보임)
+    function buildImport() {
+      const tabs = [['address', '🔗 주소로', addressPanel()], ['gongu', '📜 공유마당', gonguPanel()], ['file', '📁 다른 사이트', filePanel()]];
+      const tabRow = el('div', { className: 'row library-tabs', role: 'tablist' });
+      const show = (key) => tabs.forEach(([k, , panel], i) => {
+        panel.hidden = k !== key;
+        tabRow.children[i].classList.toggle('active', k === key);
+        tabRow.children[i].setAttribute('aria-selected', String(k === key));
       });
-      const gongu = el('div', { className: 'library-gongu' },
-        el('p', { className: 'library-step' }, el('b', { textContent: '📁 공유마당에서 파일로 받기 ' }), '(한국어 희곡)'),
-        playsBox,
-        step('①', '목록에서 작품 제목을 누르세요'),
-        step('②', '작품 페이지에서 이용 조건을 확인하세요'),
-        el('p', { className: 'note', textContent: '「만료」는 저작권이 끝난 작품이라 자유롭게 연습할 수 있어요. 「CC」·「기증」 표시는 적힌 조건(출처 표시 등) 안에서 쓸 수 있어요. 아무 표시가 없거나 상업적 이용 금지 등 조건이 있으면 개인 연습용으로만 쓰세요.' }),
-        step('③', '「다운로드」를 눌러 파일(한글·PDF·TXT)을 받으세요'),
-        step('④', '이 앱으로 돌아와 받은 파일을 여세요'),
-        el('div', { className: 'row' }, openFile),
-        el('p', { className: 'note', textContent: '휴대폰에서는 받은 파일이 보통 「다운로드」 폴더에 있어요.' }));
-      box.append(
-        step('①', '아래 목록에서 희곡을 고르세요 (새 창으로 열려요)'),
-        siteRow,
-        step('②', '작품 페이지가 열리면 위쪽 주소창의 주소를 복사하세요'),
-        el('p', { className: 'note', textContent: 'Gutenberg는 책 번호만 넣어도 돼요 (예: 1524). 위키문헌은 작품 제목을 누른 페이지의 주소.' }),
-        step('③', '이 앱으로 돌아와 주소를 붙여 넣고 불러오기'),
-        el('div', { className: 'row library-import' }, input, paste, go),
-        importStatus,
-        el('p', { className: 'note', textContent: '⚠ 목록에는 저작권이 남은 번역본도 섞여 있어요. 작가·번역가가 세상을 떠난 지 70년이 넘었는지 확인하고, 저작권이 있는 대본은 개인 연습용으로만 쓰고 공유하지 마세요.' }),
-        gongu,
-        el('p', { className: 'library-step' }, el('b', { textContent: '그 밖의 사이트 ' }), '(파일로 받아 📄 대본 파일 열기로 넣기)'),
-        fileList);
-      return box;
+      tabs.forEach(([key, label]) => {
+        const b = el('button', { className: 'ghost', type: 'button', textContent: label });
+        b.setAttribute('role', 'tab');
+        b.onclick = () => show(key);
+        tabRow.append(b);
+      });
+      show('address');
+      return el('details', { className: 'library-more' },
+        el('summary', { textContent: '➕ 다른 작품 찾아서 불러오기' }),
+        tabRow,
+        ...tabs.map(([, , panel]) => panel),
+        el('p', { className: 'note', textContent: '⚠ 직접 고른 작품은 작가·번역가가 세상을 떠난 지 70년이 넘었는지 확인하세요. 저작권이 남아 있으면 개인 연습용으로만 쓰세요.' }));
     }
     const more = buildImport();
 
