@@ -30,18 +30,30 @@
   const pick = (list, seed, salt) => list[seedOf(`${seed}|${salt}`) % list.length];
   const genderOf = (profile, voiceGender) => (profile && ['male', 'female'].includes(profile.gender) ? profile.gender : voiceGender || 'unknown');
 
+  // 그림 느낌: 기본은 사실적인 그림, anime는 손으로 그린 애니메이션 영화풍 (특정 스튜디오 이름은 넣지 않음).
+  // 무료 그림 모델은 앞쪽 낱말을 더 따르므로 애니메이션풍은 화풍을 맨 앞(lead)에 둠
+  const PORTRAIT_STYLES = {
+    realistic: { lead: '', tail: 'theatrical stage lighting, head and shoulders, painterly realistic style, plain dark background, no text' },
+    anime: {
+      lead: '2D anime illustration, still frame from a 1990s hand-drawn Japanese animated film, flat cel shading, clean ink outlines',
+      tail: 'simple expressive face, soft watercolor painted background, warm pastel colors, head and shoulders, no text',
+    },
+  };
+
   // 그림 서비스에 보낼 영어 묘사 (한글 성격 설명은 보내지 않음: 영어 외모 묘사 look만)
-  function portraitPrompt({ profile, voiceGender, lang }) {
+  function portraitPrompt({ profile, voiceGender, lang, style = 'realistic' }) {
     const gender = genderOf(profile, voiceGender);
     const age = profile && AGE_WORDS[profile.age];
     const who = [lang === 'ko' ? 'Korean' : '', age === 'elderly' ? 'elderly' : '', gender === 'male' ? 'man' : gender === 'female' ? 'woman' : 'person']
       .filter(Boolean).join(' ');
     const look = profile && typeof profile.look === 'string' ? profile.look.replace(/[가-힣]/g, '').trim() : '';
+    const { lead, tail } = PORTRAIT_STYLES[style] || PORTRAIT_STYLES.realistic;
     return [
+      lead,
       `portrait of a ${who}`,
       age && age !== 'elderly' ? age : '',
       look,
-      'theatrical stage lighting, head and shoulders, painterly realistic style, plain dark background, no text',
+      tail,
     ].filter(Boolean).join(', ');
   }
 
