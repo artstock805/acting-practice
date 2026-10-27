@@ -15,6 +15,7 @@
   const PP = window.PracticePlan;
   const SV = window.StatsView;
   const AV = window.Avatars;
+  const PQ = window.PortraitQueue.createPortraitQueue();  // 무료 그림 서비스 한도(45초에 1장) 때문에 한 장씩 받고 이 기기에 저장
   const LOG = window.PracticeLog.createLog();
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
   // 대본 언어: state.lang = 'ko' | 'en' (자동 판별 또는 선택), state.langChoice = 'auto' | 'ko' | 'en'
@@ -23,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v41';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v42';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -184,7 +185,11 @@
 
       const face = cfg.mine ? null : avatarFor(name);
       const nameCell = face ? el('span', { className: 'cast-name' }) : nameInput;
-      if (face) nameCell.append(el('img', { className: 'cast-face', src: face.src, alt: '' }), nameInput);
+      if (face) {
+        const img = el('img', { className: 'cast-face', src: face.src, alt: '', title: face.label });
+        if (face.portrait) img.dataset.portrait = face.portrait;
+        nameCell.append(img, nameInput);
+      }
 
       const cells = [mine, nameCell, document.createTextNode(String(lines)), voiceControls(name, cfg, voices, clashes.has(name)), preview];
       cells.forEach((n) => { const td = el('td'); td.append(n); tr.append(td); });
@@ -927,23 +932,38 @@
   const isOtherLine = (item) => !!item && item.type === 'line' && !(state.cast[item.character] && state.cast[item.character].mine);
 
   // 옵션·배역 분석(성별·나이·영어 외모 묘사)·목소리 성별로 얼굴 그림 주소를 정함. 끄면 null
-  function avatarFor(name) {
+  // urgent: 지금 말하는 배역이면 초상화를 먼저 받음
+  function avatarFor(name, { urgent = false } = {}) {
     const style = state.opts.avatar;
     const cfg = state.cast[name];
     if (!cfg || !style || style === 'off') return null;
     const voice = cfg.cloudVoice ? VC.getVoice(cfg.cloudVoice) : null;
     const who = { name, profile: cfg.profile || null, voiceGender: voice ? voice.gender : undefined, lang: scriptLang() };
-    if (style === 'cartoon') {
-      const look = AV.cartoonOptions(who);
-      return { src: AV.cartoonUrl(look, false), openSrc: AV.cartoonUrl(look, true), label: name };
+    const look = AV.cartoonOptions(who);
+    const cartoon = { src: AV.cartoonUrl(look, false), openSrc: AV.cartoonUrl(look, true), label: name };
+    if (style === 'cartoon') return cartoon;
+    // AI 초상화: 받아 둔 게 있으면 그것, 아니면 받는 동안 만화 얼굴로 대신 (입도 움직임)
+    const portrait = AV.portraitUrl(AV.portraitPrompt(who), AV.seedOf(name));
+    const ready = PQ.ready(portrait);
+    if (ready) return { src: ready, label: name, portrait };
+    PQ.request(portrait, { urgent }).catch(() => { /* 못 받으면 만화 얼굴 그대로 */ });
+    return { ...cartoon, label: `${name} (초상화 그리는 중…)`, portrait };
+  }
+
+  // 초상화를 다 받으면 배역표 미리보기와 무대 얼굴만 그 자리에서 바꿈 (배역표를 다시 그리지 않아 입력 중인 이름이 안 끊김)
+  function onPortraitReady(url) {
+    document.querySelectorAll('img.cast-face').forEach((img) => { if (img.dataset.portrait === url) img.src = PQ.ready(url); });
+    const item = state.items[state.index];
+    if (avatarStage && isOtherLine(item)) {
+      const face = avatarFor(item.character);
+      if (face && face.portrait === url) avatarStage.show(face);
     }
-    return { src: AV.portraitUrl(AV.portraitPrompt(who), AV.seedOf(name)), label: name };
   }
 
   // 상대 대사면 그 배역 얼굴, 내 대사·지문 동안은 마지막 상대 얼굴을 그대로 (듣는 표정), 장면이 바뀌면 숨김
   function showAvatar(item) {
     if (!avatarStage) return;
-    if (isOtherLine(item)) avatarStage.show(avatarFor(item.character));
+    if (isOtherLine(item)) avatarStage.show(avatarFor(item.character, { urgent: true }));
     else if (item.type === 'scene' || state.opts.avatar === 'off') avatarStage.hide();
     $('stage').classList.toggle('has-avatar', !$('stage').querySelector('.avatar').hidden);
   }
@@ -958,7 +978,9 @@
     img.hidden = true;
     img.onload = () => { img.hidden = false; };
     img.onerror = () => { img.hidden = true; };
-    img.src = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt) + '?width=960&height=420&nologo=true';
+    // 배역 초상화와 같은 무료 서비스라 같은 받기 줄로 (지금 장면이 먼저)
+    const url = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt) + '?width=960&height=420&nologo=true';
+    PQ.request(url, { urgent: true }).then((src) => { if (currentImgScene === scene) img.src = src; }, () => {});
   }
 
   // 연습 목록: 화면 전환 때 한 번만 전체를 만들고, 채점·녹음 뒤에는 그 줄만 바꿈 (긴 대본에서 휴대폰이 멈칫하지 않게)
@@ -1267,6 +1289,7 @@
 
   function init() {
     avatarStage = AV.createStage($('stage'), { getLevel: () => (CT.level ? CT.level() : null) });
+    PQ.onReady(onPortraitReady);
     $('script-input').value = state.text || '';
     $('opt-lang').value = state.langChoice || 'auto';
     S.setLanguage(speechLocale());
