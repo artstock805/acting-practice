@@ -1,6 +1,6 @@
 // 오프라인 실행 + 앱 설치용 서비스 워커. 네트워크 우선이라 업데이트가 바로 반영되고, 오프라인이면 캐시로 열림
-const CACHE = 'acting-practice-v41';
-const SHELL = ['./', 'index.html', 'style.css', 'parser.js', 'sample.js', 'fileimport.js', 'voicecatalog.js', 'voices.js', 'cloudtts.js', 'insightview.js', 'libraryview.js', 'practiceplan.js', 'practicelog.js', 'statsview.js', 'avatars.js', 'speech.js', 'recorder.js', 'audiokit.js', 'cloudstt.js', 'vendor/qrcode.js', 'vendor/fflate.js', 'app.js',
+const CACHE = 'acting-practice-v42';
+const SHELL = ['./', 'index.html', 'style.css', 'parser.js', 'sample.js', 'fileimport.js', 'voicecatalog.js', 'voices.js', 'cloudtts.js', 'insightview.js', 'libraryview.js', 'practiceplan.js', 'practicelog.js', 'statsview.js', 'avatars.js', 'portraitqueue.js', 'speech.js', 'recorder.js', 'audiokit.js', 'cloudstt.js', 'vendor/qrcode.js', 'vendor/fflate.js', 'app.js',
   'manifest.webmanifest', 'assets/acting-practice.png', 'assets/icon-192.png', 'assets/qr-mobile.png'];
 
 self.addEventListener('install', (e) => {
@@ -9,7 +9,8 @@ self.addEventListener('install', (e) => {
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys()
-    .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+    // 지난 버전의 앱 캐시만 지움 (이 기기에 저장한 AI 초상화 'portraits-v1' 등은 남김)
+    .then((keys) => Promise.all(keys.filter((k) => k.startsWith('acting-practice-') && k !== CACHE).map((k) => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 
