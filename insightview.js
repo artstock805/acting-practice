@@ -13,7 +13,7 @@
     work: { label: '일', color: '#5dade2' },
     other: { label: '기타', color: '#aab7b8' },
   };
-  const COLORS = { bg: '#17130f', node: '#2d241c', nodeMine: '#e8573c', text: '#f4ecdc', muted: '#a8998a', label: '#231c16' };
+  const COLORS = { bg: '#17191e', node: '#23262e', nodeMine: '#ff5d5d', text: '#e9eaee', muted: '#8b8f99', label: '#0e0f12' };
   const FONT = "'Noto Sans KR', 'Malgun Gothic', sans-serif";
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const SIZE = 640;
