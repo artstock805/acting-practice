@@ -34,8 +34,9 @@ const schemaFor = (lang) => ({
           voice: { type: 'string', enum: castable(lang).map((v) => v.id) },
           rate: { type: 'number' },
           reason: { type: 'string' },
+          look: { type: 'string' },
         },
-        required: ['name', 'gender', 'age', 'personality', 'speech', 'voice', 'rate', 'reason'],
+        required: ['name', 'gender', 'age', 'personality', 'speech', 'voice', 'rate', 'reason', 'look'],
         additionalProperties: false,
       },
     },
@@ -57,6 +58,7 @@ function buildPrompt(script, characters, lang = 'ko') {
     '대사가 많은 인물끼리는 서로 다른 목소리를 주어 듣는 사람이 구별할 수 있게 하고, 목소리가 모자라면 대사가 적은 인물끼리 겹치게 하세요.',
     '말 속도(rate)는 0.8(느림)~1.2(빠름) 사이로, 성격과 나이에 맞게 정하세요. 보통은 1.0입니다.',
     'personality, speech, reason은 배우가 읽을 짧은 한국어 한두 문장으로 쓰세요. 대본에 근거가 없으면 추측이라고 밝히세요.',
+    'look은 상대역 아바타 그림에 쓸 외모 묘사입니다. 영어 25단어 이내로 머리 모양, 옷차림, 표정, 분위기만 쓰고 이름·대사·한국어는 넣지 마세요 (예: short black hair, tired eyes, gray hoodie, guarded expression).',
     '',
     '고를 수 있는 목소리:',
     catalog,
@@ -80,6 +82,7 @@ function normalizeCasting(list, characters, lang = 'ko') {
       voice: isCloudVoice(c.voice) && languageOf(c.voice) === localeOf(lang) ? c.voice : null,
       rate: Math.round(clampRate(c.rate) * 100) / 100,
       reason: text(c.reason),
+      look: text(c.look).replace(/[가-힣]+\s*/g, '').trim(),   // 그림 서비스로 가는 영어 묘사: 한글은 뺌
     }));
 }
 

@@ -130,3 +130,14 @@ test('English scripts get English voices and the English note in the prompt', as
   ], ['MAYA'], 'en');
   assert.strictEqual(out[0].voice, null);
 });
+
+test('each character gets a short English look for the avatar, without Korean text', () => {
+  const out = normalizeCasting([
+    { name: '민수', gender: 'male', age: '20대', personality: 'p', speech: 's', voice: 'ko-KR-Chirp3-HD-Charon', rate: 1, reason: 'r', look: 'short black hair, 우울한 tired eyes, gray hoodie' },
+    { name: '지연', gender: 'female', age: '20대', personality: 'p', speech: 's', voice: 'ko-KR-Chirp3-HD-Kore', rate: 1, reason: 'r' },
+  ], ['민수', '지연']);
+  assert.strictEqual(out[0].look, 'short black hair, tired eyes, gray hoodie');
+  assert.strictEqual(out[1].look, '');
+  const { system } = buildPrompt(SCRIPT, ['민수']);
+  assert.match(system, /look/);
+});
