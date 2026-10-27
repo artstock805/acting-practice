@@ -247,14 +247,19 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
 .library-more ul { padding-left: 18px; line-height: 1.8; }
 .library-more a { color: var(--spot); }
 .library-more { text-align: left; }
-.library-step { margin: 10px 0 4px; }
 .library-sites { display: flex; flex-wrap: wrap; gap: 8px; }
 .library-site { display: inline-block; padding: 8px 12px; border: 1px solid var(--spot); border-radius: var(--radius-sm); color: var(--spot); text-decoration: none; }
 .library-import { flex-wrap: wrap; }
 .library-address { flex: 1 1 220px; min-width: 0; background: var(--stage); color: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: 16px; }
-.library-gongu { margin: 14px 0; padding: 10px 12px; border: 1px dashed var(--line); border-radius: var(--radius-sm); }
-.library-plays { margin: 8px 0 12px; }
-.library-plays summary { cursor: pointer; font-weight: 700; color: var(--spot); }
 .library-play-list { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 6px; }
 .library-play { color: var(--paper); text-decoration: underline dotted; text-underline-offset: 3px; }
 .library-play-quick { padding: 4px 10px; font-size: 0.9rem; }
+.library-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0 4px; }
+.library-tabs button { padding: 7px 4px; font-size: 0.88rem; white-space: nowrap; }
+.library-tabs .active { background: var(--spot); color: var(--stage); border-color: var(--spot); }
+.library-howto { margin: 8px 0; color: var(--muted, #a8998a); font-size: 0.92rem; text-align: left; }
+.library-label { margin: 12px 0 6px; font-weight: 700; text-align: left; }
+.library-authors { margin: 6px 0 10px; }
+.library-author { border-bottom: 1px dashed var(--line); padding: 6px 0; }
+.library-author summary { cursor: pointer; }
+.library-author .library-play-list { margin-top: 6px; }
