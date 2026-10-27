@@ -165,11 +165,17 @@
         <button id="btn-replay-scene" class="ghost" title="상대역 음성 + 내 녹음으로 이 장면을 이어서 재생">🎬 장면 다시 듣기</button>
       </div>
       <div class="progress"><div id="progress-bar"></div></div>
+      <div class="row range-bar">
+        <label class="range-pick">범위 <select id="opt-range" aria-label="연습 범위"></select></label>
+        <label class="loop-pick"><input id="opt-loop" type="checkbox"> 🔁 반복</label>
+        <button id="btn-stats" class="ghost" type="button">📊 기록</button>
+      </div>
       <ol id="transcript" class="transcript"></ol>
     </section>
   </main>
 
   <dialog id="library-dialog" class="phone-dialog library-dialog"></dialog>
+  <dialog id="stats-dialog" class="phone-dialog stats-dialog"></dialog>
 
   <dialog id="phone-dialog" class="phone-dialog">
     <h2>📱 휴대폰에서 열기</h2>
@@ -198,6 +204,9 @@
   <script src="cloudstt.js"></script>
   <script src="insightview.js"></script>
   <script src="libraryview.js"></script>
+  <script src="practiceplan.js"></script>
+  <script src="practicelog.js"></script>
+  <script src="statsview.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
