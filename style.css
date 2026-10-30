@@ -180,6 +180,7 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
 .scene-dialog { max-width: min(720px, calc(100vw - 32px)); padding: 16px; }
 .scene-dialog .scene-full { width: 100%; height: auto; max-height: 60vh; object-fit: contain; background: #000; padding: 0; margin: 0 0 12px; }
 .scene-dialog .scene-emoji { font-size: 4rem; margin: 8px 0; }
+.scene-dialog .scene-face { width: 160px; height: 160px; object-fit: cover; border-radius: 18px; background: #ffffff14; padding: 0; margin: 0 auto 12px; }
 .scene-dialog .scene-note { font-style: italic; line-height: 1.6; color: #ddd; text-align: left; margin: 8px 0 16px; }
 
 /* 휴대폰: 카드형 배역표, 큰 터치 영역, 하단 고정 조작부, 노치 안전영역 */
