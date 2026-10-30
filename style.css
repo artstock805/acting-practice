@@ -102,11 +102,14 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .stage { position: relative; aspect-ratio: 16 / 7; border-radius: var(--radius-lg); overflow: hidden; background: linear-gradient(135deg, #222, #444);
   border: 1px solid var(--line); box-shadow: inset 0 0 120px #000a; transition: background 800ms; }
 .stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.stage-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 20px 26px;
+.stage-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 20px 26px 38px;
   background: linear-gradient(to top, #000c 0%, transparent 70%); }
 .stage-emoji { font-size: clamp(2rem, 6vw, 3.5rem); position: absolute; top: 16px; right: 22px; filter: drop-shadow(0 4px 10px #0008); }
-.stage-scene { font-family: var(--serif); font-size: 1.25rem; font-weight: 700; }
-.stage-direction { color: #ddd; font-style: italic; margin-top: 4px; min-height: 1.4em; }
+.stage-scene { font-family: var(--serif); font-size: 1.25rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 긴 지문은 두 줄까지만 (넘치면 위의 대사 위치 표시와 겹쳤음) — 전체는 무대를 눌러 봄 */
+.stage-direction { color: #ddd; font-style: italic; margin-top: 4px; min-height: 1.4em;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.stage { cursor: zoom-in; }
 
 /* 대사 카드 */
 .line-card { background: var(--stage-2); color: var(--paper-ink); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 22px 26px; margin-top: -18px; position: relative;
@@ -144,7 +147,8 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .transcript li.scene-row { color: var(--spot); font-family: var(--serif); font-weight: 700; padding-top: 14px; border-bottom: 1px solid var(--line); }
 .transcript li.dir-row { font-style: italic; font-size: 0.85rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .transcript li.dir-row.current { -webkit-line-clamp: unset; }
-.stage-count { position: absolute; top: 14px; left: 18px; font-size: 0.8rem; font-weight: 800; padding: 3px 10px; border-radius: 999px;
+/* 대사 위치는 무대 맨 위 칸을 차지 (예전엔 위에 떠 있어서 장면 제목·지문과 겹쳤음) */
+.stage-count { align-self: flex-start; margin-bottom: auto; flex: none; font-size: 0.8rem; font-weight: 800; padding: 3px 10px; border-radius: 999px;
   background: #0007; color: var(--paper); letter-spacing: 0.02em; }
 .stage-count:empty { display: none; }
 .transcript li b { color: var(--paper); margin-right: 6px; }
@@ -171,6 +175,12 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
 .phone-dialog .url { font-weight: 800; color: var(--spot); margin: 4px 0 12px; word-break: break-all; }
 .phone-dialog ol { text-align: left; padding-left: 20px; line-height: 1.7; color: var(--paper); font-size: 0.92rem; }
 .phone-dialog .note { margin: 8px 0 16px; }
+
+/* 무대를 누르면: 장면 그림 전체 + 장면 제목·지문 */
+.scene-dialog { max-width: min(720px, calc(100vw - 32px)); padding: 16px; }
+.scene-dialog .scene-full { width: 100%; height: auto; max-height: 60vh; object-fit: contain; background: #000; padding: 0; margin: 0 0 12px; }
+.scene-dialog .scene-emoji { font-size: 4rem; margin: 8px 0; }
+.scene-dialog .scene-note { font-style: italic; line-height: 1.6; color: #ddd; text-align: left; margin: 8px 0 16px; }
 
 /* 휴대폰: 카드형 배역표, 큰 터치 영역, 하단 고정 조작부, 노치 안전영역 */
 @media (max-width: 640px) {
@@ -203,7 +213,7 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
   .options { grid-template-columns: 1fr; }
 
   .stage { aspect-ratio: 16 / 11; }
-  .stage-overlay { padding: 14px 16px; }
+  .stage-overlay { padding: 14px 16px 30px; }
   .line-card { margin-inline: 0; padding: 18px; }
   .controls { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; margin: 0; padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
     background: color-mix(in srgb, var(--stage) 92%, transparent); backdrop-filter: blur(10px); border-top: 1px solid var(--line); gap: 8px; }
@@ -215,6 +225,9 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
   body.practice-mode main { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
   body.practice-mode .stage { aspect-ratio: auto; height: clamp(88px, 14vh, 140px); }
   body.practice-mode .stage-emoji { font-size: 1.8rem; top: 10px; right: 14px; }
+  body.practice-mode .stage-overlay { padding: 10px 14px 24px; }   /* 아래 대사 카드가 무대를 18px 덮으므로 그만큼 띄움 */
+  body.practice-mode .stage-scene { font-size: 1.05rem; }
+  body.practice-mode .stage-direction { -webkit-line-clamp: 1; margin-top: 2px; }   /* 낮은 무대: 한 줄만 */
   body.practice-mode .line-card { min-height: 0; flex: none; }   /* 화면 높이에 눌려 글자가 카드 밖으로 넘치지 않게 */
   body.practice-mode .line-text { max-height: 24vh; overflow-y: auto; }   /* 아주 긴 대사는 카드 안에서만 스크롤 */
 }

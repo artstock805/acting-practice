@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v48';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v49';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -992,6 +992,20 @@
     $('stage').classList.toggle('has-avatar', !$('stage').querySelector('.avatar').hidden);
   }
 
+  // 무대를 누르면 장면 그림 전체와 장면 제목·지문을 크게 보여 줌 (무대에서는 그림이 잘리고 지문이 줄여 보임)
+  function openSceneView() {
+    const img = $('stage-img');
+    const picture = !img.hidden && img.src
+      ? el('img', { className: 'scene-full', src: img.src, alt: '장면 그림' })
+      : el('div', { className: 'scene-emoji', textContent: $('stage-emoji').textContent });
+    const parts = [picture, el('h2', { textContent: $('stage-scene').textContent })];
+    if ($('stage-direction').textContent) parts.push(el('p', { className: 'scene-note', textContent: $('stage-direction').textContent }));
+    const close = el('form', { method: 'dialog' });
+    close.append(el('button', { className: 'primary', textContent: '닫기' }));
+    $('scene-dialog').replaceChildren(...parts, close);
+    $('scene-dialog').showModal();
+  }
+
   // 무료·무키 이미지 생성 서비스(Pollinations). 옵션을 켰을 때만 장면 제목을 전송
   function updateStageImage(scene, mood) {
     const img = $('stage-img');
@@ -1219,6 +1233,9 @@
     $('btn-insight').onclick = runInsight;
     $('btn-insight-png').onclick = () => insightSvg && IV.saveGraphImage(insightSvg).catch((err) => setInsightStatus('⚠ ' + err.message, true));
     $('btn-insight-copy').onclick = copyInsightText;
+    $('stage').onclick = openSceneView;
+    $('stage').onkeydown = (e) => { if (e.key === 'Enter') openSceneView(); };
+    $('scene-dialog').onclick = (e) => { if (e.target === $('scene-dialog')) $('scene-dialog').close(); };   // 바깥을 눌러도 닫힘
     $('btn-phone').onclick = () => { $('phone-dialog').showModal(); loadQrLibrary().then(showPhoneQr, () => { /* 못 불러오면 기본 QR 그림을 그대로 둠 */ }); };
     $('btn-play').onclick = () => {
       S.unlock();  // iOS는 첫 음성을 사용자 터치 안에서 내야 이후 낭독이 허용됨
