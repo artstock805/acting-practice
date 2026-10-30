@@ -56,6 +56,7 @@ test('the scene-art prompt lists every scene and asks for English, no names or t
   const { system, user } = buildSceneArtPrompt(SCRIPT, SCENES);
   assert.match(system, /English/);
   assert.match(system, /이름/);
+  assert.match(system, /사람이 없는/);       // 배경(공간)만 그림, 인물은 빼기
   assert.match(user, /S#1\. 상범집 \/ 밤/);
   assert.match(user, /소주/);
 });
