@@ -214,7 +214,8 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
   body.practice-mode main { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
   body.practice-mode .stage { aspect-ratio: auto; height: clamp(88px, 14vh, 140px); }
   body.practice-mode .stage-emoji { font-size: 1.8rem; top: 10px; right: 14px; }
-  body.practice-mode .line-card { min-height: 0; }
+  body.practice-mode .line-card { min-height: 0; flex: none; }   /* 화면 높이에 눌려 글자가 카드 밖으로 넘치지 않게 */
+  body.practice-mode .line-text { max-height: 24vh; overflow-y: auto; }   /* 아주 긴 대사는 카드 안에서만 스크롤 */
 }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
@@ -328,3 +329,11 @@ body.practice-mode .range-bar { flex: none; }
   body.practice-mode .stage.has-avatar { height: clamp(150px, 24vh, 210px); }
   .avatar { height: 72%; right: 10px; }
 }
+
+/* 말하는 동안: 원문에서 말한 낱말은 초록, 들린 말은 한 줄로만, 힌트·숨기기면 목록의 원문을 흐리게 */
+.line-text .word { transition: color 150ms; }
+.line-text .word.said { color: var(--ok); }
+.line-text .aside { color: var(--muted); font-size: 0.9em; }
+.mic.listening { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.transcript[data-mode="hint"] li.mine.listening .row-text,
+.transcript[data-mode="hidden"] li.mine.listening .row-text { filter: blur(5px); }

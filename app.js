@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v43';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v44';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -388,6 +388,7 @@
         directions: $('opt-directions').checked, aiImage: $('opt-ai-image').checked, avatar: $('opt-avatar').value,
         record: recordLocked ? o.record : $('opt-record').checked } });  // 휴대폰에서 강제로 끈 건 저장하지 않음
       if (avatarChanged) renderCast();
+      $('transcript').dataset.mode = state.opts.mode;
       $('opt-threshold-val').textContent = state.opts.threshold + '%';
       $('opt-keep-going-val').textContent = state.opts.keepGoing + '%';
       $('opt-rate-val').textContent = state.opts.rate.toFixed(1) + '×';
@@ -595,9 +596,10 @@
     const recording = await startRecording();
     if (token !== runToken) { R.discard(); return 'wait'; }
     setMic((recording ? '⏺ 녹음 중 · ' : '') + '듣고 있어요… 대사를 말해 주세요.', true);
+    prepareLiveLine(item);
     listener = S.listen({
       lang: lineLocale(item),
-      onInterim: (t) => setMic('🎙 ' + t, true),
+      onInterim: (t) => showInterim(item, t),
       shouldStopEarly: (t) => K.similarity(speechOf(item), t) >= Math.max(threshold, 0.9),
       silenceMs: K.silenceForLine(speechOf(item)),
       pickAlternative: (soFar, alternatives) => K.bestAlternative(speechOf(item), soFar, alternatives),
@@ -1003,6 +1005,7 @@
     transcriptRows = rows;
     lineOrdinals = ordinals;
     $('transcript').replaceChildren(frag);
+    $('transcript').dataset.mode = state.opts.mode;  // 힌트·숨기기면 내가 말하는 동안 목록의 원문을 흐리게
   }
 
   function refreshTranscriptRow(index) {
@@ -1051,7 +1054,7 @@
     const mine = state.cast[item.character] && state.cast[item.character].mine;
     const li = el('li', { className: mine ? 'mine' : '' });
     li.dataset.index = index;
-    li.append(el('b', { textContent: item.character }), listText(item));
+    li.append(el('b', { textContent: item.character }), el('span', { className: 'row-text', textContent: listText(item) }));
     if (takes[index]) {
       const play = el('button', { className: 'take', textContent: '🎧', title: '내 녹음 듣기' });
       play.onclick = (e) => { e.stopPropagation(); R.play(takes[index]); };
@@ -1065,6 +1068,52 @@
     li.classList.toggle('current', index === state.index);
     li.onclick = () => jumpTo(index, false);
     return li;
+  }
+
+  // 말하는 동안 보여 주기 (긴 대사에서 원문과 인식 중인 말이 겹쳐 쌓이지 않게)
+  // '전체 보기'면 원문에서 이미 말한 낱말을 초록으로 칠하고, 힌트·숨기기면 진행도와 들린 말의 끝부분만 한 줄로
+  const INTERIM_TAIL = 24;
+  let liveWords = [];
+
+  function prepareLiveLine(item) {
+    liveWords = [];
+    if (state.opts.mode !== 'full') return;
+    const parts = K.splitAsides(shownText(item)).flatMap((p) => (p.aside
+      ? [el('span', { className: 'aside', textContent: `(${p.text}) ` })]
+      : p.text.split(/\s+/).filter(Boolean).map((w) => {
+        const span = el('span', { className: 'word', textContent: w + ' ' });
+        liveWords.push(span);
+        return span;
+      })));
+    $('line-text').replaceChildren(...parts);
+  }
+
+  // 지금 어디까지 말했는지: 앞에서부터 맞은 낱말을 따라가다 3개 연속으로 안 맞으면 멈춤
+  // (뒤쪽의 '다'·'그' 같은 짧은 낱말이 앞에서 한 말과 우연히 맞아 미리 칠해지지 않게)
+  const MISSES_TO_STOP = 3;
+  function spokenSoFar(diff) {
+    let frontier = -1;
+    let misses = 0;
+    for (let i = 0; i < diff.length && misses < MISSES_TO_STOP; i++) {
+      if (diff[i].ok) { frontier = i; misses = 0; } else misses++;
+    }
+    return diff.map((w, i) => w.ok && i <= frontier);
+  }
+
+  function showInterim(item, heard) {
+    const said = spokenSoFar(K.wordDiff(speechOf(item), heard));
+    const progress = `${said.filter(Boolean).length}/${said.length}`;
+    if (!liveWords.length) {
+      const tail = heard.length > INTERIM_TAIL ? '…' + heard.slice(-INTERIM_TAIL) : heard;
+      setMic(`🎙 (${progress}) ${tail}`, true);
+      return;
+    }
+    liveWords.forEach((span, i) => span.classList.toggle('said', !!said[i]));
+    setMic(`🎙 듣는 중 · ${progress}`, true);
+    // 긴 대사가 카드 안에서 스크롤될 때 마지막으로 말한 낱말이 보이게
+    const last = liveWords.filter((s) => s.classList.contains('said')).pop();
+    const box = $('line-text');
+    if (last && box.scrollHeight > box.clientHeight) box.scrollTop = last.offsetTop - box.offsetTop - box.clientHeight / 2;
   }
 
   function setMic(text, listening) {
