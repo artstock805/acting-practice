@@ -286,4 +286,6 @@ test('keepListening waits through long pauses until the line is nearly done', ()
   assert.strictEqual(K.keepListening({ ...base, coverage: 0.9, idleMs: 1500, elapsedMs: 10_000 }), false);   // 거의 다 했으면 보통 쉼에서 끝
   assert.strictEqual(K.keepListening({ ...base, coverage: 0.9, idleMs: 800, elapsedMs: 10_000 }), true);
   assert.strictEqual(K.keepListening({ ...base, coverage: 0.2, idleMs: 100, elapsedMs: 30_000 }), false);    // 최대 시간
+  assert.strictEqual(K.keepListening({ ...base, coverage: 1, idleMs: 1000, elapsedMs: 10_000 }), false);     // 마지막 낱말까지 했으면 짧은 쉼에서 끝
+  assert.strictEqual(K.keepListening({ ...base, coverage: 1, idleMs: 400, elapsedMs: 10_000 }), true);
 });

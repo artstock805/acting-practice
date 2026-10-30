@@ -8,6 +8,7 @@
   const ALTERNATIVES = 5;       // 인식 후보 수 (대사와 가장 가까운 것을 고름)
   const MAX_RESTARTS = 12;      // 말 중간에 인식이 끊겼을 때 이어 듣는 최대 횟수 (갤럭시 크롬은 긴 대사에서 자주 스스로 끝냄)
   const RECHECK_MS = 400;       // 계속 들을지 다시 물어보는 간격
+  const MIN_OVERLAP = 4;        // 이미 들은 말 끝과 이만큼(띄어쓰기 뺀 글자) 이상 겹치면 다시 보낸 말로 봄
 
   // 지문 감정 → 낭독 보정
   const EMOTION_TUNE = { anger: { pitch: 1.1, rate: 1.15, volume: 1 }, sad: { pitch: 0.9, rate: 0.85, volume: 0.9 },
@@ -117,7 +118,6 @@
     let settled = false;
     let lastHeardAt = 0;
     let restarts = 0;
-    let carried = '';   // 다시 시작하기 직전에 확정으로 옮긴 말 (새 세션이 같은 말을 다시 보내면 겹치지 않게 뺌)
     let resolveFn;
     let rejectFn;
     // 진단용: 인식 이벤트가 몇 초에 왔는지 기록 (휴대폰에서 '소리가 안 들림' 원인 찾기)
@@ -128,18 +128,8 @@
       rec.addEventListener(name, () => mark(name));
     });
 
-    // 일부 안드로이드 크롬은 다시 시작한 세션에서 직전 말을 처음부터 다시 보냄 → 그 앞부분을 빼고 새 말만 붙임
-    const dropCarried = (text) => {
-      const t = String(text || '').trim();
-      if (!carried) return t;
-      const squash = (s) => s.replace(/\s+/g, '');
-      if (!squash(t).startsWith(squash(carried))) return t;
-      let i = 0;
-      let matched = 0;
-      const target = squash(carried).length;
-      while (i < t.length && matched < target) { if (!/\s/.test(t[i])) matched++; i++; }
-      return t.slice(i).trim();
-    };
+    // 갤럭시 크롬은 확정 결과에도 앞서 확정한 말을 다시 붙여 보냄 → 안 빼면 같은 말이 두 번 들어가 점수가 크게 깎였음
+    const dropRepeated = (text) => newPart(finalText, text);
 
     let endReason = '';
     const finish = (reason) => {
@@ -166,17 +156,18 @@
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
         if (!r.isFinal) { interim += r[0].transcript; continue; }
-        const alternatives = Array.from(r, (a) => dropCarried(a.transcript));
+        const alternatives = Array.from(r, (a) => dropRepeated(a.transcript));
         finalText += ' ' + ((pickAlternative && pickAlternative(finalText.trim(), alternatives)) || alternatives[0]);
-        carried = '';
       }
+      interim = dropRepeated(interim);
       lastHeardAt = Date.now();
       clearTimeout(noSpeechTimer);
       const current = (finalText + ' ' + interim).trim();
       if (onInterim) onInterim(current);
       clearTimeout(silenceTimer);
       if (shouldStopEarly && shouldStopEarly(current)) { finish('matched'); return; }
-      silenceTimer = setTimeout(onQuiet, silenceMs);
+      // 앱이 판단할 수 있으면 짧게 쉬어도 물어봄 (대사를 다 했으면 긴 쉼을 다 기다리지 않고 바로 채점)
+      silenceTimer = setTimeout(onQuiet, shouldKeepListening ? Math.min(silenceMs, RECHECK_MS) : silenceMs);
     };
     rec.onerror = (ev) => {
       mark('error:' + ev.error);
@@ -195,7 +186,7 @@
       const stillTalking = Date.now() - lastHeardAt < silenceMs || keepGoing();
       if (!settled && heard && stillTalking && restarts < MAX_RESTARTS) {
         restarts++;
-        if (interim) { finalText += ' ' + interim; carried = interim.trim(); interim = ''; }
+        if (interim) { finalText += ' ' + interim; interim = ''; }
         try { rec.start(); mark('restart'); return; } catch (_) { /* 다시 시작 못 하면 지금까지로 채점 */ }
       }
       finish(heard ? 'phone-ended' : 'no-speech');
@@ -207,6 +198,22 @@
       get endReason() { return endReason; },
       stop: () => { try { rec.abort(); } catch (_) { /* 이미 종료됨 */ } finish('stopped'); },
     };
+  }
+
+  // 일부 안드로이드 크롬은 다시 시작한 세션에서도 직전 말을 처음부터 다시 보냄
+  // → next에서 before 끝과 겹치는 앞부분을 뺀 새 말만 (띄어쓰기 무시, MIN_OVERLAP글자 이상 겹칠 때만)
+  function newPart(before, next) {
+    const t = String(next || '').trim();
+    const squash = (x) => x.replace(/\s+/g, '');
+    const a = squash(before);
+    const b = squash(t);
+    for (let k = Math.min(a.length, b.length); k >= MIN_OVERLAP; k--) {
+      if (!a.endsWith(b.slice(0, k))) continue;
+      let i = 0;
+      for (let matched = 0; i < t.length && matched < k; i++) if (!/\s/.test(t[i])) matched++;
+      return t.slice(i).trim();
+    }
+    return t;
   }
 
   function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
