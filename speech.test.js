@@ -67,3 +67,47 @@ test('listening always stops at the line\'s maximum time', async () => {
   assert.ok(Date.now() - started < 1500);
   assert.match(heard, /계속 말하는 중/);
 });
+
+test('once speech has started, the no-speech timeout no longer cuts the line off', async () => {
+  const { Speech, made } = loadSpeech();
+  let done = false;
+  const listener = Speech.listen({ silenceMs: 500, noSpeechMs: 150, maxMs: 5000 });
+  listener.promise.then(() => { done = true; });
+  const rec = made[0];
+  await wait(50);
+  rec.say('말을 시작했고', false);
+  for (let t = 0; t < 4; t++) { await wait(60); rec.say('말을 시작했고 계속 말하는 중', false); }   // 150ms를 훌쩍 넘겨 말함
+  assert.strictEqual(done, false, '말하는 중인데 무음 대기 한도로 끝나면 안 됨');
+  listener.stop();
+  await listener.promise;
+});
+
+test('a no-speech error in a mid-line pause does not end listening', async () => {
+  const { Speech, made } = loadSpeech();
+  let done = false;
+  const listener = Speech.listen({ silenceMs: 50, shouldKeepListening: (heard, idleMs) => idleMs < 1000, maxMs: 3000 });
+  listener.promise.then(() => { done = true; });
+  const rec = made[0];
+  rec.say('앞부분', true);
+  await wait(20);
+  rec.onerror({ error: 'no-speech' });   // 갤럭시 크롬이 쉬는 동안 보냄
+  rec.onend();
+  await wait(20);
+  assert.strictEqual(done, false);
+  assert.strictEqual(rec.started, 2, '다시 들어야 함');
+  listener.stop();
+  await listener.promise;
+  assert.strictEqual(listener.endReason, 'stopped');
+});
+
+test('the reason listening ended is reported', async () => {
+  const { Speech, made } = loadSpeech();
+  const a = Speech.listen({ silenceMs: 30, maxMs: 2000 });
+  made[0].say('짧은 대사', true);
+  await a.promise;
+  assert.strictEqual(a.endReason, 'pause');
+  const b = Speech.listen({ silenceMs: 50, shouldKeepListening: () => true, maxMs: 120 });
+  made[1].say('긴 대사', false);
+  await b.promise;
+  assert.strictEqual(b.endReason, 'max');
+});
