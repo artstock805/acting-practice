@@ -36,8 +36,9 @@
   // hint: 말할 대사 (서버가 Google 인식에 힌트로 넘김) · silenceMs: 말이 끝났다고 볼 침묵 길이
   // promise → { text, segments, blob }   (말이 없었으면 text '', blob null). segments = 구간별 인식 후보들
   // diag: 실패 원인 표시용 { ctx, peak, threshold, outcome, uploadKB }
-  // lang: 'ko-KR' | 'en-US' (대본 언어)
-  function listen({ onPhase, hint = '', silenceMs, lang = 'ko-KR' } = {}) {
+  // lang: 'ko-KR' | 'en-US' (대본 언어) · maxMs: 이 대사를 녹음할 최대 시간 (긴 대사가 중간에 끊기지 않게)
+  // finish(): 소리 크기를 못 재 정해진 시간만큼 녹음할 때, 다 말했으면 기다리지 않고 바로 채점
+  function listen({ onPhase, hint = '', silenceMs, maxMs, lang = 'ko-KR' } = {}) {
     let stopped = false;
     let timer = null;
     let source = null;
@@ -81,7 +82,7 @@
       source = ctx.createMediaStreamSource(R.getStream());
       source.connect(analyser);
       const frame = new Float32Array(analyser.fftSize);
-      const detector = A.createSilenceDetector(silenceMs ? { silenceMs } : {});
+      const detector = A.createSilenceDetector({ ...(silenceMs ? { silenceMs } : {}), ...(maxMs ? { maxMs } : {}) });
       const outcome = await new Promise((done) => {
         finishLoop = done;
         timer = setInterval(() => {
@@ -96,10 +97,11 @@
 
     // 오디오가 끝내 켜지지 않으면(휴대폰 자동 재생 제한) 정해진 시간만 녹음
     async function timedTake() {
-      if (onPhase) onPhase('timed', TIMED_TAKE_MS);
+      const takeMs = Math.max(TIMED_TAKE_MS, maxMs || 0);
+      if (onPhase) onPhase('timed', takeMs);
       const outcome = await new Promise((done) => {
         finishLoop = done;
-        timer = setTimeout(() => done('timed'), TIMED_TAKE_MS);
+        timer = setTimeout(() => done('timed'), takeMs);
       });
       Object.assign(diag, { ctx: ctx.state, outcome });
       return outcome;
@@ -108,6 +110,7 @@
     return {
       promise,
       diag,
+      finish() { if (finishLoop) finishLoop('finished'); },
       stop() {
         stopped = true;
         if (finishLoop) finishLoop('stopped');

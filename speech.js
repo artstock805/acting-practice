@@ -6,7 +6,8 @@
   const SILENCE_MS = 1400;      // 말이 끝났다고 보는 침묵 길이
   const NO_SPEECH_MS = 15000;   // 아무 말도 없을 때 대기 한도
   const ALTERNATIVES = 5;       // 인식 후보 수 (대사와 가장 가까운 것을 고름)
-  const MAX_RESTARTS = 3;       // 말 중간에 인식이 끊겼을 때 이어 듣는 최대 횟수
+  const MAX_RESTARTS = 12;      // 말 중간에 인식이 끊겼을 때 이어 듣는 최대 횟수 (갤럭시 크롬은 긴 대사에서 자주 스스로 끝냄)
+  const RECHECK_MS = 400;       // 계속 들을지 다시 물어보는 간격
 
   // 지문 감정 → 낭독 보정
   const EMOTION_TUNE = { anger: { pitch: 1.1, rate: 1.15, volume: 1 }, sad: { pitch: 0.9, rate: 0.85, volume: 0.9 },
@@ -99,7 +100,9 @@
   // silenceMs: 말이 끝났다고 볼 침묵 길이 (대사가 길거나 '...'이 있으면 더 길게 넘겨 받음)
   // pickAlternative(지금까지 말한 내용, 후보들) → 인식 후보 중 대사와 가장 가까운 것을 고름
   // lang: 이 대사를 알아들을 언어 ('ko-KR' | 'en-US', 없으면 대본 언어)
-  function listen({ onInterim, shouldStopEarly, silenceMs = SILENCE_MS, pickAlternative, lang: lineLang } = {}) {
+  // shouldKeepListening(지금까지 말한 내용, 조용했던 ms, 시작 뒤 ms) → true면 쉬어도 끝내지 않음 (대사를 아직 다 안 했을 때)
+  // maxMs: 이 대사를 들을 최대 시간
+  function listen({ onInterim, shouldStopEarly, silenceMs = SILENCE_MS, pickAlternative, lang: lineLang, shouldKeepListening, maxMs } = {}) {
     if (!Recognition) return { promise: Promise.reject(new Error('unsupported')), stop() {} };
     const rec = new Recognition();
     rec.lang = lineLang === 'en-US' || lineLang === 'ko-KR' ? lineLang : lang;
@@ -136,8 +139,13 @@
       return t.slice(i).trim();
     };
 
-    const finish = () => { if (!settled) { settled = true; clearTimeout(silenceTimer); clearTimeout(noSpeechTimer); try { rec.stop(); } catch (_) { /* 이미 종료됨 */ } resolveFn((finalText + ' ' + interim).trim()); } };
+    const finish = () => { if (!settled) { settled = true; clearTimeout(silenceTimer); clearTimeout(noSpeechTimer); clearTimeout(maxTimer); try { rec.stop(); } catch (_) { /* 이미 종료됨 */ } resolveFn((finalText + ' ' + interim).trim()); } };
     const noSpeechTimer = setTimeout(finish, NO_SPEECH_MS);
+    const maxTimer = maxMs ? setTimeout(finish, maxMs) : null;
+    const heardSoFar = () => (finalText + ' ' + interim).trim();
+    // 조용해졌을 때: 대사를 아직 다 안 했으면(앱이 판단) 더 기다리고, 다 했거나 너무 오래 조용하면 끝
+    const keepGoing = () => !!shouldKeepListening && shouldKeepListening(heardSoFar(), Date.now() - lastHeardAt, Date.now() - t0);
+    const onQuiet = () => { if (keepGoing()) silenceTimer = setTimeout(onQuiet, RECHECK_MS); else finish(); };
 
     const promise = new Promise((res, rej) => { resolveFn = res; rejectFn = rej; });
     rec.onresult = (ev) => {
@@ -155,7 +163,7 @@
       if (onInterim) onInterim(current);
       clearTimeout(silenceTimer);
       if (shouldStopEarly && shouldStopEarly(current)) { finish(); return; }
-      silenceTimer = setTimeout(finish, silenceMs);
+      silenceTimer = setTimeout(onQuiet, silenceMs);
     };
     rec.onerror = (ev) => {
       mark('error:' + ev.error);
@@ -169,7 +177,8 @@
     rec.onend = () => {
       mark('end');
       const heard = (finalText + interim).trim();
-      if (!settled && heard && Date.now() - lastHeardAt < silenceMs && restarts < MAX_RESTARTS) {
+      const stillTalking = Date.now() - lastHeardAt < silenceMs || keepGoing();
+      if (!settled && heard && stillTalking && restarts < MAX_RESTARTS) {
         restarts++;
         if (interim) { finalText += ' ' + interim; carried = interim.trim(); interim = ''; }
         try { rec.start(); mark('restart'); return; } catch (_) { /* 다시 시작 못 하면 지금까지로 채점 */ }

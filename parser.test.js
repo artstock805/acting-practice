@@ -244,3 +244,46 @@ test('each line is recognized in its own language, falling back to the script la
   assert.strictEqual(K.lineLanguage('…', 'ko'), 'ko');
   assert.strictEqual(K.lineLanguage('20!', 'ko'), 'ko');
 });
+
+test('long lines wait longer for pauses and record long enough to finish', () => {
+  const huge = '3년 동안 아무 연락도 없다가 갑자기 나타나서 이게 무슨 짓이야. 나는 그동안 매일 밤 이 카페에 앉아서 네가 문을 열고 들어올까 봐 기다렸어. 비가 오는 날이면 더 그랬고, 우산을 두 개씩 들고 다녔어.';
+  assert.ok(K.silenceForLine(huge) > 3200 && K.silenceForLine(huge) <= 4500);
+  assert.strictEqual(K.silenceForLine('응.'), 1400);   // 짧은 대사는 그대로
+
+  const short = K.takeMsForLine('응.');
+  const long = K.takeMsForLine(huge);
+  assert.strictEqual(short, 10_000);                  // 최소 10초
+  assert.ok(long > 25_000 && long <= 55_000, String(long));   // 78자 대사 ≈ 28초
+  assert.strictEqual(K.takeMsForLine(huge.repeat(5)), 55_000);   // 서버 한도(55초) 안에서
+  assert.ok(K.takeMsForLine('Where have you been all this time?') < K.takeMsForLine('3년 동안 아무 연락도 없다가 갑자기 나타나서'));
+});
+
+const LONG_LINE = '3년 동안 아무 연락도 없다가 갑자기 나타나서 이게 무슨 짓이야. 나는 그동안 매일 밤 이 카페에 앉아서 네가 문을 열고 들어올까 봐 기다렸어. 비가 오는 날이면 더 그랬고, 우산을 두 개씩 들고 다녔어.';
+
+test('alignProgress follows what was said in order and never runs ahead', () => {
+  const words = LONG_LINE.split(/\s+/);
+  const heard = '3년 동안 아무 연락도 없다가 갑자기 나타나서 이게 무슨 짓이야 나는 그동안 매일 밤';
+  const said = K.alignProgress(LONG_LINE, heard);
+  assert.strictEqual(said.length, words.length);
+  const upTo = words.indexOf('밤');
+  assert.ok(said.slice(0, upTo + 1).every(Boolean), JSON.stringify(said));
+  assert.ok(said.slice(upTo + 1).every((x) => !x), '아직 안 한 말(다녔어·다 등)은 칠하지 않음');
+});
+
+test('alignProgress ignores the recognizer\'s spacing and tolerates a skipped word', () => {
+  const said = K.alignProgress(LONG_LINE, '3년동안아무연락도없다가');
+  assert.deepStrictEqual(said.slice(0, 5), [true, true, true, true, true]);
+  assert.strictEqual(said[5], false);
+  const skipped = K.alignProgress(LONG_LINE, '3년 동안 연락도 없다가 갑자기 나타나서');
+  assert.deepStrictEqual(skipped.slice(0, 7), [true, true, false, true, true, true, true]);
+  assert.ok(K.alignProgress('Where have you been?', "where have you").slice(0, 3).every(Boolean));
+});
+
+test('keepListening waits through long pauses until the line is nearly done', () => {
+  const base = { silenceMs: 1400, longSilenceMs: 6000, maxMs: 30_000 };
+  assert.strictEqual(K.keepListening({ ...base, coverage: 0.4, idleMs: 3000, elapsedMs: 10_000 }), true);    // 절반도 안 했으면 3초 쉬어도 계속
+  assert.strictEqual(K.keepListening({ ...base, coverage: 0.4, idleMs: 6500, elapsedMs: 10_000 }), false);   // 6초 넘게 조용하면 끝
+  assert.strictEqual(K.keepListening({ ...base, coverage: 0.9, idleMs: 1500, elapsedMs: 10_000 }), false);   // 거의 다 했으면 보통 쉼에서 끝
+  assert.strictEqual(K.keepListening({ ...base, coverage: 0.9, idleMs: 800, elapsedMs: 10_000 }), true);
+  assert.strictEqual(K.keepListening({ ...base, coverage: 0.2, idleMs: 100, elapsedMs: 30_000 }), false);    // 최대 시간
+});
