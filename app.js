@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v51';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v52';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -92,7 +92,7 @@
     // 같은 대본이면 대사별 점수 기록(약한 대사)은 남기고, 대본이 바뀌면 지우고 연습 범위도 전체로
     const sameText = text === state.text;
     if (!sameText) sceneArtRequest = null;   // 대본이 바뀌면 장면 그림 설명을 새로 받음
-    update({ text, items, cast, index: 0, results: {}, mergeDismissed: [], insight: sameText ? state.insight : null, sceneArt: sameText ? state.sceneArt : null,
+    update({ text, items, cast, index: 0, results: {}, mergeDismissed: [], insight: sameText ? state.insight : null, scenePlaces: sameText ? state.scenePlaces : null, sceneArt: undefined,
       lineStats: sameText ? state.lineStats || {} : {}, opts: sameText ? state.opts : { ...state.opts, range: 'all' } });
     renderCast();
     enableTabs();
@@ -1013,20 +1013,21 @@
     $('scene-dialog').showModal();
   }
 
-  // 장면 그림 설명: 서버(Claude)가 대본을 읽고 장면마다 쓴 영어 설명. 대본마다 한 번만 받아 저장해 둠
+  // 장면 그림 설명: 서버(Claude)가 대본을 읽고 장면마다 쓴 영어 배경(공간) 설명. 대본마다 한 번만 받아 scenePlaces에 저장해 둠
+  // (v51의 sceneArt는 인물까지 그린 설명이라 쓰지 않음)
   // (그림 서비스는 한국어 장면 제목(예: '상범집')을 못 알아들어 내용과 상관없는 그림이 나왔음). 못 받으면 예전처럼 장면 제목으로
   const SCENE_TITLE_MAX = 120;   // sceneart.js와 같게
   const sceneKey = (scene) => scene.trim().slice(0, SCENE_TITLE_MAX).trim();
   let sceneArtRequest = null;
   function sceneArtPrompts() {
-    if (state.sceneArt) return Promise.resolve(state.sceneArt);
+    if (state.scenePlaces) return Promise.resolve(state.scenePlaces);
     if (sceneArtRequest) return sceneArtRequest;
     const script = state.text;
     const scenes = [...new Set(state.items.map((i) => i.scene).filter(Boolean).map(sceneKey))];
     sceneArtRequest = fetch('/api/scene-art', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script, scenes, lang: scriptLang() }) })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`scene-art ${res.status}`))))
       // 하나도 못 받았으면 저장하지 않음 (다음에 다시 물어봄)
-      .then((body) => { if (state.text === script && Object.keys(body.scenes).length) update({ sceneArt: body.scenes }); return body.scenes; })
+      .then((body) => { if (state.text === script && Object.keys(body.scenes).length) update({ scenePlaces: body.scenes, sceneArt: undefined }); return body.scenes; })
       .catch(() => ({}));   // 서버 설정 안 됨·한도 초과면 장면 제목으로 그림 (이번 실행 동안은 다시 묻지 않음)
     return sceneArtRequest;
   }
@@ -1043,7 +1044,8 @@
     sceneArtPrompts().then((art) => {
       if (currentImgScene !== scene) return null;
       const what = art[sceneKey(scene)] || `${mood ? mood.key : ''} scene, ${scene.replace(/S\s*#\s*\d+\.?/i, '')}`;
-      const prompt = `cinematic film still, ${what}, moody lighting, no text`;
+      // 배경만: 사람 없는 빈 공간 (인물은 무대의 배역 얼굴로 보여 줌)
+      const prompt = `cinematic establishing shot, empty set with no people, ${what}, moody lighting, no text`;
       // 배역 초상화와 같은 무료 서비스라 같은 받기 줄로 (지금 장면이 먼저)
       const url = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt) + '?width=960&height=420&nologo=true';
       return PQ.request(url, { urgent: true }).then((src) => { if (currentImgScene === scene) img.src = src; });
