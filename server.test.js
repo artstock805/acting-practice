@@ -47,7 +47,7 @@ test('POST /api/stt rejects wrong type, oversized and invalid audio without call
   await withServer({ transcribe: async () => { calls++; return ''; } }, async (base) => {
     const post = (body, type = 'audio/wav') => fetch(`${base}/api/stt`, { method: 'POST', headers: { 'Content-Type': type }, body });
     assert.strictEqual((await post('hello', 'text/plain')).status, 415);
-    assert.strictEqual((await post(Buffer.alloc(1024 * 1024 + 1))).status, 413);
+    assert.strictEqual((await post(Buffer.alloc(2 * 1024 * 1024 + 1))).status, 413);   // 서버 한도 2MB(약 65초) 초과
     assert.strictEqual((await post(Buffer.from('RIFF....garbage'))).status, 400);
   });
   assert.strictEqual(calls, 0);
@@ -278,4 +278,14 @@ test('the Android app link file and APK are served, other JSON files are not', a
     assert.strictEqual((await fetch(`${base}/package.json`)).status, 404);
     assert.strictEqual((await fetch(`${base}/android.html`)).status, 200);
   });
+});
+
+test('long lines can be recorded for up to 55 seconds', async () => {
+  let got = null;
+  await withServer({ transcribe: async (_wav, info) => { got = info; return '긴 대사'; } }, async (base) => {
+    const res = await fetch(`${base}/api/stt`, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wavOf(40) });
+    assert.strictEqual(res.status, 200);
+  });
+  assert.ok(got.seconds > 39);
+  assert.strictEqual(MAX_AUDIO_SECONDS, 55);
 });

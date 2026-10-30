@@ -472,7 +472,7 @@
   const SILENCE_BASE_MS = 1400;
   const SILENCE_PER_CHAR_MS = 30;    // 12글자를 넘는 글자마다
   const SILENCE_PAUSE_MS = 700;      // '...', '…', '—' 가 있으면
-  const SILENCE_MAX_MS = 3200;
+  const SILENCE_MAX_MS = 4500;       // 아주 긴 대사는 연기 호흡으로 길게 쉬어도 녹음이 끊기지 않게
   // 영어 글자는 한글 음절보다 짧게 발음되므로 0.4글자로 셈 (영어 대사에서 지나치게 오래 기다리지 않게)
   const LATIN_CHAR_WEIGHT = 0.4;
   function silenceForLine(text) {
@@ -481,6 +481,18 @@
     const chars = n.length - latin + latin * LATIN_CHAR_WEIGHT;
     const pause = /\.\.\.|…|—/.test(String(text || '')) ? SILENCE_PAUSE_MS : 0;
     return Math.min(SILENCE_MAX_MS, SILENCE_BASE_MS + Math.max(0, chars - 12) * SILENCE_PER_CHAR_MS + pause);
+  }
+
+  // 이 대사를 녹음할 최대 시간(ms): 글자당 0.3초 + 여유 5초, 10초~55초 (서버가 받는 녹음 한도 55초)
+  const TAKE_BASE_MS = 5000;
+  const TAKE_PER_CHAR_MS = 300;
+  const TAKE_MIN_MS = 10_000;
+  const TAKE_MAX_MS = 55_000;
+  function takeMsForLine(text) {
+    const n = normalize(text);
+    const latin = (n.match(/[a-z]/g) || []).length;
+    const chars = n.length - latin + latin * LATIN_CHAR_WEIGHT;
+    return Math.round(Math.min(TAKE_MAX_MS, Math.max(TAKE_MIN_MS, TAKE_BASE_MS + chars * TAKE_PER_CHAR_MS)));
   }
 
   function firstLetterHint(text) {
@@ -517,7 +529,7 @@
   function detectMood(text) { return findByWords(MOODS, text); }
   function detectEmotion(text) { return findByWords(EMOTIONS, text); }
 
-  const api = { parseScript, detectLanguage, lineLanguage, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, firstLetterHint, detectMood, detectEmotion, normalize };
+  const api = { parseScript, detectLanguage, lineLanguage, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, takeMsForLine, firstLetterHint, detectMood, detectEmotion, normalize };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ScriptKit = api;
 })(this);

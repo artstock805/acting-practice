@@ -12,8 +12,8 @@ const { insightWithClaude } = require('./insight.js');
 const { createLibraryHandler } = require('./library.js');
 
 const ROOT = path.resolve(process.env.STATIC_ROOT || __dirname);
-const MAX_AUDIO_BYTES = 1024 * 1024;   // 16kHz 모노 16bit 기준 약 32초
-const MAX_AUDIO_SECONDS = 20;
+const MAX_AUDIO_BYTES = 2 * 1024 * 1024;   // 16kHz 모노 16bit 기준 약 65초
+const MAX_AUDIO_SECONDS = 55;   // 긴 대사도 끝까지 (Google 한 번 인식 한도 60초보다 조금 짧게)
 const RATE_LIMIT = { max: 30, windowMs: 60_000 };  // IP당 분당 요청 수
 const GLOBAL_LIMIT = { max: 300, windowMs: 60_000 };  // 인스턴스 전체 분당 요청 수 (IP를 바꿔 가며 보내는 남용 대비)
 const MAX_IN_FLIGHT = 10;          // 동시에 Google로 보내는 요청 수

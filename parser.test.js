@@ -244,3 +244,16 @@ test('each line is recognized in its own language, falling back to the script la
   assert.strictEqual(K.lineLanguage('…', 'ko'), 'ko');
   assert.strictEqual(K.lineLanguage('20!', 'ko'), 'ko');
 });
+
+test('long lines wait longer for pauses and record long enough to finish', () => {
+  const huge = '3년 동안 아무 연락도 없다가 갑자기 나타나서 이게 무슨 짓이야. 나는 그동안 매일 밤 이 카페에 앉아서 네가 문을 열고 들어올까 봐 기다렸어. 비가 오는 날이면 더 그랬고, 우산을 두 개씩 들고 다녔어.';
+  assert.ok(K.silenceForLine(huge) > 3200 && K.silenceForLine(huge) <= 4500);
+  assert.strictEqual(K.silenceForLine('응.'), 1400);   // 짧은 대사는 그대로
+
+  const short = K.takeMsForLine('응.');
+  const long = K.takeMsForLine(huge);
+  assert.strictEqual(short, 10_000);                  // 최소 10초
+  assert.ok(long > 25_000 && long <= 55_000, String(long));   // 78자 대사 ≈ 28초
+  assert.strictEqual(K.takeMsForLine(huge.repeat(5)), 55_000);   // 서버 한도(55초) 안에서
+  assert.ok(K.takeMsForLine('Where have you been all this time?') < K.takeMsForLine('3년 동안 아무 연락도 없다가 갑자기 나타나서'));
+});
