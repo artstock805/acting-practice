@@ -457,6 +457,52 @@
     });
   }
 
+  // 말하는 중 진행 표시: 들린 말을 대사 앞에서부터 차례로 맞춰 봄 (글자 단위 최장 공통 부분열, 앞쪽에 먼저 맞춤).
+  // 낱말 글자의 절반 이상이 순서대로 맞으면 말한 것, 3개 연속 안 맞으면 거기서 멈춤
+  // → 뒤쪽 낱말이 앞에서 한 말과 글자가 겹쳐도 미리 '말함'이 되지 않음 (wordDiff는 순서를 안 봐서 앞서 나갔음)
+  const ALIGN_MIN_RATIO = 0.5;
+  const ALIGN_STOP_MISSES = 3;
+  function alignProgress(expected, spoken) {
+    const words = String(expected || '').split(/\s+/).filter(Boolean);
+    const chars = [];
+    const owner = [];
+    words.forEach((w, i) => { for (const ch of canonical(w)) { chars.push(ch); owner.push(i); } });
+    const heard = [...canonical(spoken)];
+    const n = chars.length;
+    const m = heard.length;
+    // lcs[i][j] = chars[i..]와 heard[j..]의 최장 공통 부분열 길이
+    const lcs = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        lcs[i][j] = chars[i] === heard[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+      }
+    }
+    const hits = new Array(words.length).fill(0);
+    const lengths = new Array(words.length).fill(0);
+    owner.forEach((w) => { lengths[w]++; });
+    for (let i = 0, j = 0; i < n && j < m;) {
+      if (chars[i] === heard[j] && lcs[i][j] === lcs[i + 1][j + 1] + 1) { hits[owner[i]]++; i++; j++; } else if (lcs[i][j + 1] >= lcs[i + 1][j]) j++; else i++;
+    }
+    let misses = 0;
+    let stopped = false;
+    return words.map((w, i) => {
+      if (stopped || !lengths[i]) return false;
+      const said = hits[i] / lengths[i] >= ALIGN_MIN_RATIO;
+      misses = said ? 0 : misses + 1;
+      if (misses >= ALIGN_STOP_MISSES) stopped = true;
+      return said;
+    });
+  }
+
+  // 말하는 중에 계속 들을지: 대사를 거의 다 했으면 보통 쉼(silenceMs)에서 끝, 아직이면 긴 쉼(longSilenceMs)까지 기다림
+  // coverage: 대사에서 말한 위치(0~1), idleMs: 마지막으로 말이 들린 뒤 지난 시간, maxMs: 이 대사의 최대 녹음 시간
+  const DONE_COVERAGE = 0.85;
+  const LONG_SILENCE_MS = 6000;
+  function keepListening({ coverage, idleMs, elapsedMs, silenceMs, longSilenceMs = LONG_SILENCE_MS, maxMs }) {
+    if (elapsedMs >= maxMs) return false;
+    return idleMs < (coverage >= DONE_COVERAGE ? silenceMs : longSilenceMs);
+  }
+
   // 인식기가 준 후보 문장들 중, 지금까지 말한 내용(prefix)에 붙였을 때 대사와 가장 가까운 것
   function bestAlternative(expected, prefix, candidates) {
     let best = '';
@@ -529,7 +575,7 @@
   function detectMood(text) { return findByWords(MOODS, text); }
   function detectEmotion(text) { return findByWords(EMOTIONS, text); }
 
-  const api = { parseScript, detectLanguage, lineLanguage, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, takeMsForLine, firstLetterHint, detectMood, detectEmotion, normalize };
+  const api = { parseScript, detectLanguage, lineLanguage, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, takeMsForLine, alignProgress, keepListening, firstLetterHint, detectMood, detectEmotion, normalize };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ScriptKit = api;
 })(this);

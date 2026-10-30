@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v45';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v46';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -603,6 +603,12 @@
       onInterim: (t) => showInterim(item, t),
       shouldStopEarly: (t) => K.similarity(speechOf(item), t) >= Math.max(threshold, 0.9),
       silenceMs: K.silenceForLine(speechOf(item)),
+      maxMs: K.takeMsForLine(speechOf(item)),
+      // 대사를 아직 다 안 했으면 잠깐 쉬어도(연기 호흡) 끝내지 않음 — 거의 다 했을 때만 보통 쉼에서 채점
+      shouldKeepListening: (heard, idleMs, elapsedMs) => K.keepListening({
+        coverage: coverageOf(item, heard), idleMs, elapsedMs,
+        silenceMs: K.silenceForLine(speechOf(item)), maxMs: K.takeMsForLine(speechOf(item)),
+      }),
       pickAlternative: (soFar, alternatives) => K.bestAlternative(speechOf(item), soFar, alternatives),
     });
     let spoken = '';
@@ -1091,20 +1097,14 @@
     $('line-text').replaceChildren(...parts);
   }
 
-  // 지금 어디까지 말했는지: 앞에서부터 맞은 낱말을 따라가다 3개 연속으로 안 맞으면 멈춤
-  // (뒤쪽의 '다'·'그' 같은 짧은 낱말이 앞에서 한 말과 우연히 맞아 미리 칠해지지 않게)
-  const MISSES_TO_STOP = 3;
-  function spokenSoFar(diff) {
-    let frontier = -1;
-    let misses = 0;
-    for (let i = 0; i < diff.length && misses < MISSES_TO_STOP; i++) {
-      if (diff[i].ok) { frontier = i; misses = 0; } else misses++;
-    }
-    return diff.map((w, i) => w.ok && i <= frontier);
+  // 대사에서 지금 말한 위치(0~1): 앞에서부터 차례로 맞춘 마지막 낱말까지
+  function coverageOf(item, heard) {
+    const said = K.alignProgress(speechOf(item), heard);
+    return said.length ? (said.lastIndexOf(true) + 1) / said.length : 1;
   }
 
   function showInterim(item, heard) {
-    const said = spokenSoFar(K.wordDiff(speechOf(item), heard));
+    const said = K.alignProgress(speechOf(item), heard);   // 들린 말을 대사 앞에서부터 차례로 맞춤 (앞서 칠해지지 않게)
     const progress = `${said.filter(Boolean).length}/${said.length}`;
     if (!liveWords.length) {
       const tail = heard.length > INTERIM_TAIL ? '…' + heard.slice(-INTERIM_TAIL) : heard;
