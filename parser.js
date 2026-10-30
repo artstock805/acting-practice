@@ -496,10 +496,13 @@
 
   // 말하는 중에 계속 들을지: 대사를 거의 다 했으면 보통 쉼(silenceMs)에서 끝, 아직이면 긴 쉼(longSilenceMs)까지 기다림
   // coverage: 대사에서 말한 위치(0~1), idleMs: 마지막으로 말이 들린 뒤 지난 시간, maxMs: 이 대사의 최대 녹음 시간
+  // 마지막 낱말까지 말했으면 짧은 쉼(END_PAUSE_MS)에서 바로 채점 (긴 대사는 보통 쉼이 4.5초까지 길어 결과가 늦게 나왔음)
   const DONE_COVERAGE = 0.85;
   const LONG_SILENCE_MS = 6000;
+  const END_PAUSE_MS = 900;
   function keepListening({ coverage, idleMs, elapsedMs, silenceMs, longSilenceMs = LONG_SILENCE_MS, maxMs }) {
     if (elapsedMs >= maxMs) return false;
+    if (coverage >= 1) return idleMs < Math.min(silenceMs, END_PAUSE_MS);
     return idleMs < (coverage >= DONE_COVERAGE ? silenceMs : longSilenceMs);
   }
 

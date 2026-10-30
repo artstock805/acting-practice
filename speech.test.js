@@ -111,3 +111,32 @@ test('the reason listening ended is reported', async () => {
   await b.promise;
   assert.strictEqual(b.endReason, 'max');
 });
+
+test('text the phone sends again is not counted twice', async () => {
+  const { Speech, made } = loadSpeech();
+  const listener = Speech.listen({ silenceMs: 30, maxMs: 2000 });
+  const rec = made[0];
+  rec.say('오늘은 날씨가', true);
+  rec.say('오늘은 날씨가 참 좋네요', true);   // 갤럭시 크롬: 확정 결과에 앞 말을 다시 붙여 보냄
+  assert.strictEqual(await listener.promise, '오늘은 날씨가 참 좋네요');
+});
+
+test('after restarting, words already heard are not repeated', async () => {
+  const { Speech, made } = loadSpeech();
+  const listener = Speech.listen({ silenceMs: 50, shouldKeepListening: (heard, idleMs) => idleMs < 300, maxMs: 3000 });
+  const rec = made[0];
+  rec.say('첫 번째 문장입니다', true);
+  rec.onend();                                // 다시 시작한 세션이
+  rec.say('첫 번째 문장입니다 두 번째 문장', true);   // 직전 말을 처음부터 다시 보냄
+  listener.stop();
+  assert.strictEqual(await listener.promise, '첫 번째 문장입니다 두 번째 문장');
+});
+
+test('when the app says the line is done, listening ends without the full pause', async () => {
+  const { Speech, made } = loadSpeech();
+  const started = Date.now();
+  const listener = Speech.listen({ silenceMs: 3000, shouldKeepListening: (heard, idleMs) => !heard.includes('끝') && idleMs < 3000, maxMs: 5000 });
+  made[0].say('대사 끝', true);
+  await listener.promise;
+  assert.ok(Date.now() - started < 1500, '대사를 다 했으면 긴 쉼(3초)을 기다리지 않음');
+});
