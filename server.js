@@ -8,6 +8,7 @@ const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const { createTtsHandler, createGoogleSynthesizer, createDailyBudget } = require('./tts.js');
 const { createAnalyzeHandler, createClaudeClient, analyzeWithClaude } = require('./analyze.js');
+const { sceneArtWithClaude, parseSceneArtRequest } = require('./sceneart.js');
 const { insightWithClaude } = require('./insight.js');
 const { createLibraryHandler } = require('./library.js');
 
@@ -286,7 +287,7 @@ function compressed(entry, encoding) {
   return entry[encoding];
 }
 
-function route({ handleStt, handleTts, handleAnalyze, handleInsight, handleLibrary }, req, res) {
+function route({ handleStt, handleTts, handleAnalyze, handleInsight, handleSceneArt, handleLibrary }, req, res) {
   let pathname;
   try { pathname = new URL(req.url, 'http://x').pathname; } catch { return send(res, 400, ''); }  // 예: 'GET //'
   if (pathname === '/api/stt' && req.method === 'POST') return handleStt(req, res);
@@ -294,6 +295,7 @@ function route({ handleStt, handleTts, handleAnalyze, handleInsight, handleLibra
   if (pathname === '/api/tts' && req.method === 'POST') return handleTts(req, res);
   if (pathname === '/api/analyze' && req.method === 'POST') return handleAnalyze(req, res);
   if (pathname === '/api/insight' && req.method === 'POST') return handleInsight(req, res);
+  if (pathname === '/api/scene-art' && req.method === 'POST') return handleSceneArt(req, res);
   const library = /^\/api\/library(?:\/([^/]*))?$/.exec(pathname);
   if (library && req.method === 'GET') {
     let id = '';
@@ -326,10 +328,17 @@ function createServer(opts) {
     toBody: (insight) => insight,
     readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
   });
+  // 장면 그림 설명: 'AI 장면 이미지'를 켰을 때 대본마다 한 번 (한도는 따로)
+  const handleSceneArt = createAnalyzeHandler({
+    analyze: opts && 'sceneArt' in opts ? opts.sceneArt : claude && ((args) => sceneArtWithClaude(args, claude)),
+    toBody: (scenes) => ({ scenes }),
+    parse: parseSceneArtRequest,
+    readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
+  });
   const server = http.createServer((req, res) => {
     // 요청 하나의 예상 못 한 오류가 프로세스 전체를 멈추지 않게 여기서 받음
     Promise.resolve()
-      .then(() => route({ handleStt, handleTts, handleAnalyze, handleInsight, handleLibrary }, req, res))
+      .then(() => route({ handleStt, handleTts, handleAnalyze, handleInsight, handleSceneArt, handleLibrary }, req, res))
       .catch((err) => {
         console.error('[server]', err && err.stack ? err.stack : err);
         if (!res.headersSent) send(res, 500, '');

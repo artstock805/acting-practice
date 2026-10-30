@@ -130,8 +130,8 @@ function parseRequest(raw) {
   return { script, characters: names, lang: body.lang === 'en' ? 'en' : 'ko' };
 }
 
-// toBody: 분석 결과를 응답 본문으로 (배역 분석은 { characters }, 초목표 분석은 결과 그대로)
-function createAnalyzeHandler({ analyze, readBody, sendJson, clientIp, createRateLimiter, createDailyBudget, daily = DAILY_ANALYSES, maxInFlight = MAX_IN_FLIGHT, toBody = (characters) => ({ characters }) }) {
+// toBody: 분석 결과를 응답 본문으로 (배역 분석은 { characters }, 초목표 분석은 결과 그대로) · parse: 요청 본문 읽기 (장면 그림 설명은 배역 대신 장면 목록)
+function createAnalyzeHandler({ analyze, readBody, sendJson, clientIp, createRateLimiter, createDailyBudget, daily = DAILY_ANALYSES, maxInFlight = MAX_IN_FLIGHT, toBody = (characters) => ({ characters }), parse = parseRequest }) {
   const allow = createRateLimiter(ANALYZE_RATE_LIMIT);
   const allowGlobal = createRateLimiter(ANALYZE_GLOBAL_LIMIT);
   const spendAll = createDailyBudget(daily);
@@ -146,7 +146,7 @@ function createAnalyzeHandler({ analyze, readBody, sendJson, clientIp, createRat
     try { raw = await readBody(req, MAX_BODY_BYTES); } catch (err) {
       return sendJson(res, err.status || 400, { error: err.status === 413 ? '대본이 너무 깁니다.' : '요청을 받지 못했습니다.' });
     }
-    const parsed = parseRequest(raw);
+    const parsed = parse(raw);
     if (parsed.error) return sendJson(res, parsed.status, { error: parsed.error });
     if (!allowGlobal('all') || !spendClient(1, who)) return sendJson(res, 429, { error: USED_UP });
     if (!spendAll(1)) { spendClient.refund(1, who); return sendJson(res, 429, { error: USED_UP }); }
