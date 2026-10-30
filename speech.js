@@ -101,8 +101,10 @@
   // pickAlternative(지금까지 말한 내용, 후보들) → 인식 후보 중 대사와 가장 가까운 것을 고름
   // lang: 이 대사를 알아들을 언어 ('ko-KR' | 'en-US', 없으면 대본 언어)
   // shouldKeepListening(지금까지 말한 내용, 조용했던 ms, 시작 뒤 ms) → true면 쉬어도 끝내지 않음 (대사를 아직 다 안 했을 때)
-  // maxMs: 이 대사를 들을 최대 시간
-  function listen({ onInterim, shouldStopEarly, silenceMs = SILENCE_MS, pickAlternative, lang: lineLang, shouldKeepListening, maxMs } = {}) {
+  // maxMs: 이 대사를 들을 최대 시간 · noSpeechMs: 아무 말도 안 들릴 때 기다릴 한도 (말이 들리기 시작하면 더는 안 씀)
+  // 돌려주는 endReason: 왜 듣기를 끝냈는지 ('pause' 쉼 · 'matched' 대사와 맞음 · 'max' 최대 시간 · 'phone-ended' 휴대폰이 인식을 끝냄
+  //   · 'no-speech' 말소리 없음 · 'aborted' · 'stopped' 사용자가 멈춤)
+  function listen({ onInterim, shouldStopEarly, silenceMs = SILENCE_MS, pickAlternative, lang: lineLang, shouldKeepListening, maxMs, noSpeechMs = NO_SPEECH_MS } = {}) {
     if (!Recognition) return { promise: Promise.reject(new Error('unsupported')), stop() {} };
     const rec = new Recognition();
     rec.lang = lineLang === 'en-US' || lineLang === 'ko-KR' ? lineLang : lang;
@@ -139,13 +141,23 @@
       return t.slice(i).trim();
     };
 
-    const finish = () => { if (!settled) { settled = true; clearTimeout(silenceTimer); clearTimeout(noSpeechTimer); clearTimeout(maxTimer); try { rec.stop(); } catch (_) { /* 이미 종료됨 */ } resolveFn((finalText + ' ' + interim).trim()); } };
-    const noSpeechTimer = setTimeout(finish, NO_SPEECH_MS);
-    const maxTimer = maxMs ? setTimeout(finish, maxMs) : null;
+    let endReason = '';
+    const finish = (reason) => {
+      if (settled) return;
+      settled = true;
+      endReason = reason;
+      mark('finish:' + reason);
+      clearTimeout(silenceTimer); clearTimeout(noSpeechTimer); clearTimeout(maxTimer);
+      try { rec.stop(); } catch (_) { /* 이미 종료됨 */ }
+      resolveFn((finalText + ' ' + interim).trim());
+    };
+    // 아무 말도 없을 때만 쓰는 한도: 말이 들리기 시작하면 지움 (예전엔 안 지워서 15초 넘는 대사가 말하는 중에 끊겼음)
+    const noSpeechTimer = setTimeout(() => finish('no-speech'), noSpeechMs);
+    const maxTimer = maxMs ? setTimeout(() => finish('max'), maxMs) : null;
     const heardSoFar = () => (finalText + ' ' + interim).trim();
     // 조용해졌을 때: 대사를 아직 다 안 했으면(앱이 판단) 더 기다리고, 다 했거나 너무 오래 조용하면 끝
     const keepGoing = () => !!shouldKeepListening && shouldKeepListening(heardSoFar(), Date.now() - lastHeardAt, Date.now() - t0);
-    const onQuiet = () => { if (keepGoing()) silenceTimer = setTimeout(onQuiet, RECHECK_MS); else finish(); };
+    const onQuiet = () => { if (keepGoing()) silenceTimer = setTimeout(onQuiet, RECHECK_MS); else finish('pause'); };
 
     const promise = new Promise((res, rej) => { resolveFn = res; rejectFn = rej; });
     rec.onresult = (ev) => {
@@ -159,16 +171,19 @@
         carried = '';
       }
       lastHeardAt = Date.now();
+      clearTimeout(noSpeechTimer);
       const current = (finalText + ' ' + interim).trim();
       if (onInterim) onInterim(current);
       clearTimeout(silenceTimer);
-      if (shouldStopEarly && shouldStopEarly(current)) { finish(); return; }
+      if (shouldStopEarly && shouldStopEarly(current)) { finish('matched'); return; }
       silenceTimer = setTimeout(onQuiet, silenceMs);
     };
     rec.onerror = (ev) => {
       mark('error:' + ev.error);
       if (settled) return;
-      if (ev.error === 'no-speech' || ev.error === 'aborted') { finish(); return; }
+      // 대사 중간에 쉬는 동안 갤럭시 크롬이 'no-speech'를 보내도, 아직 대사 중이면 끝내지 않음 (곧 오는 onend에서 다시 듣기)
+      if (ev.error === 'no-speech' && heardSoFar() && keepGoing()) return;
+      if (ev.error === 'no-speech' || ev.error === 'aborted') { finish(ev.error); return; }
       settled = true;
       clearTimeout(silenceTimer); clearTimeout(noSpeechTimer);
       rejectFn(new Error(ev.error));
@@ -183,10 +198,15 @@
         if (interim) { finalText += ' ' + interim; carried = interim.trim(); interim = ''; }
         try { rec.start(); mark('restart'); return; } catch (_) { /* 다시 시작 못 하면 지금까지로 채점 */ }
       }
-      finish();
+      finish(heard ? 'phone-ended' : 'no-speech');
     };
-    try { rec.start(); } catch (err) { mark('start-fail:' + err.name); settled = true; clearTimeout(noSpeechTimer); rejectFn(err); }
-    return { promise, trace, stop:() => { try { rec.abort(); } catch (_) { /* 이미 종료됨 */ } finish(); } };
+    try { rec.start(); } catch (err) { mark('start-fail:' + err.name); settled = true; clearTimeout(noSpeechTimer); clearTimeout(maxTimer); rejectFn(err); }
+    return {
+      promise,
+      trace,
+      get endReason() { return endReason; },
+      stop: () => { try { rec.abort(); } catch (_) { /* 이미 종료됨 */ } finish('stopped'); },
+    };
   }
 
   function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }

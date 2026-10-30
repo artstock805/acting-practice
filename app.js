@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v46';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v47';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -619,10 +619,11 @@
       setMic(micErrorMessage(err.message) + diagnosis(trace));
       return 'wait';
     }
+    const endedBy = listener.endReason;
     listener = null;
     if (token !== runToken) { R.discard(); return 'wait'; }
     if (recording) saveTake(state.index, await R.stop());
-    return judgeLine(item, spoken, threshold, diagnosis(trace));
+    return judgeLine(item, spoken, threshold, diagnosis(trace), endedBy);
   }
 
   // 휴대폰 + 서버: 녹음 → 말이 끝나면 자동 정지 → 서버가 글자로 바꿔 줌 → 채점. 녹음은 다시 듣기에 그대로 씀
@@ -652,8 +653,16 @@
     listener = null;
     if (token !== runToken) return 'wait';
     if (result.blob) saveTake(state.index, result.blob);
-    return judgeLine(item, pickFromSegments(speechOf(item), result), threshold, cloudDiagnosis(diag));
+    const endedBy = { 'speech-end': 'pause', max: 'max', timed: 'max' }[diag.outcome] || '';
+    return judgeLine(item, pickFromSegments(speechOf(item), result), threshold, cloudDiagnosis(diag), endedBy);
   }
+
+  // 점수가 낮을 때 왜 듣기를 끝냈는지 알려 줌 (말하는 중에 끊겼는지 확인용)
+  const END_REASONS = {
+    pause: '말이 멈춰서', max: '이 대사의 최대 녹음 시간이 지나서', 'phone-ended': '휴대폰이 듣기를 끝내서',
+    'no-speech': '말소리가 안 들려서', aborted: '듣기가 중단돼서',
+  };
+  const endNote = (endedBy) => (END_REASONS[endedBy] ? ` · 듣기 종료: ${END_REASONS[endedBy]}` : '');
 
   // 서버가 구간마다 준 인식 후보 중 대사에 가장 가까운 것을 앞에서부터 골라 이어 붙임
   function pickFromSegments(line, result) {
@@ -671,7 +680,7 @@
     return RECORD_BLOCKS_SCORING && cloudReady && state.opts.record !== false && R.canRecord;
   }
 
-  async function judgeLine(item, spoken, threshold, failDetail) {
+  async function judgeLine(item, spoken, threshold, failDetail, endedBy = '') {
     const score = K.similarity(speechOf(item), spoken);
     recordResult(state.index, score);
     noteScore(item, spoken, score, threshold);
@@ -680,11 +689,11 @@
     // 통과 기준에 못 미쳐도 '계속 진행 기준'을 넘으면 멈추지 않고 다음 대사로 (점수·틀린 곳은 남겨 두고 잠깐 보여 줌)
     if (score > (state.opts.keepGoing ?? DEFAULT_KEEP_GOING) / 100) {
       revealLine(item);
-      setMic(`조금 달라요 (${Math.round(score * 100)}%). 다음 대사로 넘어가요.`);
+      setMic(`조금 달라요 (${Math.round(score * 100)}%). 다음 대사로 넘어가요.${endNote(endedBy)}`);
       await sleep(KEEP_GOING_PAUSE_MS);
       return 'next';
     }
-    setMic(spoken ? '조금 달라요. 다시 말하거나 통과 처리할 수 있어요.' : '소리가 들리지 않았어요. 마이크를 확인해 주세요.' + failDetail);
+    setMic(spoken ? `조금 달라요. 다시 말하거나 통과 처리할 수 있어요.${endNote(endedBy)}` : '소리가 들리지 않았어요. 마이크를 확인해 주세요.' + failDetail);
     revealLine(item);
     setRetryButtons(true);
     return 'wait';
