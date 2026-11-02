@@ -12,8 +12,7 @@
   --ok: #4cc38a;
   --bad: #ff7a70;
   --line: #262e3d;
-  --script: #eeeff1;    /* 대본 종이 */
-  --script-ink: #1b1f27;
+  --ink: #1b1f27;       /* 호박색 버튼 위 글씨 */
   --serif: 'Gowun Batang', 'Batang', serif;   /* 대본 글씨 */
   --sans: 'IBM Plex Sans KR', 'Malgun Gothic', sans-serif;
   --radius-sm: 8px;
@@ -22,7 +21,8 @@
 
 * { box-sizing: border-box; }
 html { background: var(--stage); color-scheme: dark; }   /* 스크롤바·기본 입력 칸도 어두운 화면에 맞춤 */
-body { margin: 0; background: var(--stage); color: var(--paper); font-family: var(--sans); min-height: 100vh; }
+body { margin: 0; color: var(--paper); font-family: var(--sans); min-height: 100vh;
+  background: radial-gradient(70% 45% at 50% -8%, color-mix(in srgb, var(--spot) 9%, transparent), transparent 70%) no-repeat, var(--stage); }
 button, input, select, textarea { font: inherit; }
 select, input[type=text], input[type=url] { background: var(--stage); color: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; }
 input[type=range], input[type=checkbox] { accent-color: var(--spot); }
@@ -53,8 +53,8 @@ textarea:focus, select:focus, input[type=text]:focus, input[type=url]:focus { ou
 
 .row { display: flex; gap: 10px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
 .spacer { flex: 1; }
-.primary, .ghost { border-radius: 10px; padding: 10px 18px; cursor: pointer; transition: transform 120ms, background 120ms, border-color 120ms; }
-.primary { background: var(--spot); color: var(--script-ink); border: 0; font-weight: 700; box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--spot) 70%, transparent); }
+.primary, .ghost { border-radius: 999px; padding: 10px 20px; cursor: pointer; transition: transform 120ms, background 120ms, border-color 120ms; }
+.primary { background: var(--spot); color: var(--ink); border: 0; font-weight: 700; box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--spot) 70%, transparent); }
 .primary:hover { background: var(--spot-hover); }
 .primary:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 .ghost { background: var(--stage-2); color: var(--paper); border: 1px solid var(--line); font-weight: 500; }
@@ -113,8 +113,11 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .stage { position: relative; aspect-ratio: 16 / 7; border-radius: var(--radius-lg); overflow: hidden; background: linear-gradient(135deg, #222, #444);
   border: 1px solid var(--line); box-shadow: inset 0 0 120px #000a; transition: background 800ms; }
 .stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.stage-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 20px 26px 38px;
+.stage-overlay { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; justify-content: flex-end; padding: 20px 26px 22px;
   background: linear-gradient(to top, #000c 0%, transparent 70%); }
+/* 무대 위에서 내려오는 호박색 조명 한 줄기 */
+.stage::before { content: ''; position: absolute; z-index: 1; left: 50%; top: -55%; width: 75%; aspect-ratio: 1; transform: translateX(-50%); border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--spot) 34%, transparent), transparent); pointer-events: none; }
 .stage-emoji { font-size: clamp(2rem, 6vw, 3.5rem); position: absolute; top: 16px; right: 22px; filter: drop-shadow(0 4px 10px #0008); }
 .stage-scene { font-family: var(--serif); font-size: 1.25rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 긴 지문은 두 줄까지만 (넘치면 위의 대사 위치 표시와 겹쳤음) — 전체는 무대를 눌러 봄 */
@@ -122,28 +125,34 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .stage { cursor: zoom-in; }
 
-/* 대사 카드: 손에 든 대본 한 장 (어두운 무대 위에서 유일하게 밝은 면). 종이 위라 글씨·채점 색을 짙게 바꿈 */
-.line-card { --muted: #5f6676; --ok: #13804c; --bad: #c8372d;
-  background: var(--script); color: var(--script-ink); border: 0; border-radius: 6px 6px var(--radius-lg) var(--radius-lg); padding: 22px 26px 20px; margin-top: -18px; position: relative;
-  margin-inline: clamp(0px, 3vw, 28px); min-height: 160px; box-shadow: inset 4px 0 0 var(--spot), 0 18px 40px -18px #000; transition: box-shadow 200ms; }
-.line-card.is-mine { box-shadow: inset 4px 0 0 var(--mine), 0 18px 40px -18px #000; }
-.line-head { display: flex; gap: 10px; align-items: baseline; font-weight: 700; color: var(--muted); font-size: 0.95rem; }
-.line-card.is-mine .line-head { color: #c4433b; }
-.note-chip { font-weight: 400; font-size: 0.85rem; padding: 2px 10px; border-radius: 999px; background: #1b1f2712; color: var(--script-ink); }
+/* 지금 대사: 조명 아래 무대 가운데에 크게 (카드 상자 없이) */
+.line-card { position: relative; margin-top: 14px; padding: 12px 8px 4px; min-height: 150px; text-align: center; color: var(--paper); }
+.line-head { display: flex; gap: 10px; align-items: baseline; justify-content: center; font-weight: 600; color: var(--muted); font-size: 0.92rem; }
+.line-card.is-mine .line-head { color: var(--mine); }
+.note-chip { font-weight: 400; font-size: 0.85rem; padding: 2px 10px; border-radius: 999px; background: #ffffff12; color: var(--paper); }
 .note-chip:empty { display: none; }
-.line-text { font-family: var(--serif); font-size: clamp(1.25rem, 2.7vw, 1.65rem); line-height: 1.65; margin-top: 8px; }
-.line-text.is-hidden .masked { color: #0000; text-shadow: 0 0 12px #1b1f2766; user-select: none; }
-.line-diff { margin-top: 10px; font-family: var(--serif); }
+.line-text { font-family: var(--serif); font-size: clamp(1.45rem, 3.4vw, 2rem); line-height: 1.55; margin-top: 10px; color: #fff; text-wrap: balance; }
+.line-text.is-hidden .masked { color: #0000; text-shadow: 0 0 14px #fff8; user-select: none; }
+.line-diff { margin-top: 12px; font-family: var(--serif); }
 .line-diff .w { padding: 0 2px; border-radius: 3px; }
 .line-diff .w.ok { color: var(--ok); }
 .line-diff .w.bad { color: var(--bad); text-decoration: underline wavy; }
 .line-diff .score { font-family: var(--sans); font-weight: 800; margin-right: 8px; }
 .line-diff .heard { margin-top: 6px; font-family: var(--sans); font-size: 0.85rem; color: var(--muted); }
 .mic { margin-top: 10px; font-size: 0.9rem; color: var(--muted); min-height: 1.3em; white-space: pre-line; }
-.mic.listening::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--mine); margin-right: 8px; animation: pulse 1s infinite; }
+/* 듣는 중: 호박색 소리 막대 세 개가 오르내림 */
+.mic.listening::before { content: ''; display: inline-block; width: 22px; height: 14px; margin-right: 8px; vertical-align: -2px;
+  background: linear-gradient(var(--spot), var(--spot)) 0 100% / 4px 40% no-repeat, linear-gradient(var(--spot), var(--spot)) 9px 100% / 4px 90% no-repeat,
+    linear-gradient(var(--spot), var(--spot)) 18px 100% / 4px 60% no-repeat;
+  animation: level 900ms ease-in-out infinite; }
+@keyframes level { 50% { background-size: 4px 90%, 4px 35%, 4px 100%; } }
 @keyframes pulse { 50% { opacity: 0.25; transform: scale(0.7); } }
 
-.controls { justify-content: flex-start; }
+/* 조작부: ⏮ ▶ ⏭ 를 가운데 한 줄, 나머지 버튼은 아랫줄 (빈칸 요소가 줄바꿈 역할) */
+.controls { justify-content: center; }
+.controls .spacer { flex-basis: 100%; height: 0; }
+#btn-prev, #btn-next { width: 48px; height: 48px; padding: 0; border-radius: 50%; font-size: 1rem; }
+#btn-play { min-width: 160px; height: 52px; font-size: 1.05rem; }
 .progress { height: 4px; background: var(--line); border-radius: 4px; margin-top: 16px; overflow: hidden; }
 #progress-bar { height: 100%; width: 0; background: var(--spot); transition: width 300ms; }
 
@@ -231,12 +240,13 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
   .line-card { margin-inline: 0; padding: 18px; }
   .controls { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; margin: 0; padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
     background: color-mix(in srgb, var(--stage) 92%, transparent); backdrop-filter: blur(10px); border-top: 1px solid var(--line); gap: 8px; }
-  .controls .spacer { display: none; }
-  .controls button { flex: 1 1 auto; padding: 10px 12px; }
-  #btn-play { flex: 2 1 auto; }
+  .controls { row-gap: 8px; }
+  .controls button { flex: 1 1 40%; padding: 9px 12px; min-height: 40px; }
+  .controls #btn-prev, .controls #btn-next { flex: none; width: 48px; height: 48px; }
+  .controls #btn-play { flex: 0 1 220px; height: 52px; }
   .transcript { max-height: none; }
   /* 휴대폰 연습 화면: 무대를 낮게 줄여 대본 목록 자리를 확보, 아래 고정 조작부만큼 비움 */
-  body.practice-mode main { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+  body.practice-mode main { padding-bottom: calc(128px + env(safe-area-inset-bottom)); }   /* 조작부가 두 줄(⏮▶⏭ + 나머지) */
   body.practice-mode .stage { aspect-ratio: auto; height: clamp(88px, 14vh, 140px); }
   body.practice-mode .stage-emoji { font-size: 1.8rem; top: 10px; right: 14px; }
   body.practice-mode .stage-overlay { padding: 10px 14px 24px; }   /* 아래 대사 카드가 무대를 18px 덮으므로 그만큼 띄움 */
