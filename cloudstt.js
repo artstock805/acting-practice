@@ -157,6 +157,7 @@
 
   // 이미 있는 녹음(PC 녹음 등)을 서버에서 글자로 바꿈 → { text, segments }
   function transcribeRecording(blob, { hint = '', lang = 'ko-KR' } = {}) {
+    unlock();   // 풀 때 쓰는 오디오를 하나만 만들어 계속 씀 (매번 새로 만들면 브라우저 한도에 걸림)
     return transcribe(blob, undefined, {}, hint, lang);
   }
 

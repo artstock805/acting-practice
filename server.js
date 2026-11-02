@@ -138,6 +138,7 @@ const HINT_BOOST = 20;          // 0~20. 높을수록 힌트 쪽으로 강하게
 // 긴 대사도 그대로 정확함
 const STT_MODEL = 'chirp_3';
 const EMPTY_RETRIES = 2;   // 말소리가 있는데 빈 결과면 다시 묻는 횟수 (합성 음성 한 글자 대사: 1번 97% → 2번에서 남은 것까지)
+const RETRY_WINDOW_MS = 6000;   // 이만큼 지났으면 더 묻지 않음 (채점 대기가 길어지지 않게)
 
 // 대본 언어에 맞춰 인식 (X-Speech-Lang). 허용 목록 밖이면 한국어
 const SPEECH_LANGS = new Set(['ko-KR', 'en-US']);
@@ -230,8 +231,12 @@ async function recognize(wav, info, hint = '', languageCode = 'ko-KR', { fetchIm
     return { text: segments.map((alts) => alts[0]).join(' ').trim(), segments };
   };
   // Chirp 3은 같은 녹음에도 가끔 빈 결과를 줌 (한 글자 대사에서 잦음) → 말소리가 있었으면 다시 물어봄
+  // 다시 물을 때 실패하면 첫 빈 결과로 돌려줌 (오류로 바꾸지 않음). 너무 오래 걸렸으면 더 묻지 않음
+  const started = Date.now();
   let result = await once();
-  for (let retry = 0; !result.text && hasSpeech && retry < EMPTY_RETRIES; retry++) result = await once();
+  for (let retry = 0; !result.text && hasSpeech && retry < EMPTY_RETRIES && Date.now() - started < RETRY_WINDOW_MS; retry++) {
+    try { result = await once(); } catch (err) { console.error('[stt] retry', err.message); break; }
+  }
   return result;
 }
 

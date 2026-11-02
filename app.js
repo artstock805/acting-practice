@@ -1428,8 +1428,9 @@
     bindOptions();
     setupInstall();
     window.addEventListener('pagehide', () => R.release());  // 앱을 닫거나 다른 화면으로 가면 마이크를 놓음
+    // 서버가 있는지는 PC에서도 확인 (PC는 내장 인식이 못 알아들은 녹음을 서버에 다시 맡김)
+    C.checkAvailable().then((ok) => { cloudReady = ok; if (ok && RECORD_BLOCKS_SCORING) bindOptions(); });
     if (RECORD_BLOCKS_SCORING) {
-      C.checkAvailable().then((ok) => { cloudReady = ok; if (ok) bindOptions(); });
       // 휴대폰은 터치 안에서만 오디오를 켜게 해 줌. 연습은 ▶ 말고도 여러 경로로 시작되니 화면 어디를 눌러도 켜 둠
       document.addEventListener('pointerdown', () => C.unlock(), { capture: true, passive: true });
     }

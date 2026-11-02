@@ -251,6 +251,19 @@ test('recognize asks again once when speech was heard but the answer is empty', 
   });
 });
 
+test('a failed retry keeps the first empty answer instead of turning into an error', async () => {
+  await withGoogleEnv(async () => {
+    const replies = [googleReply([]), { ok: false, status: 503, text: async () => 'busy' }];
+    const fetchImpl = async () => replies.shift();
+    const original = console.error;
+    console.error = () => {};
+    try {
+      const wav = wavWith(pcmWithSpeech());
+      assert.deepStrictEqual(await recognize(wav, parseWavHeader(wav), '네.', 'ko-KR', { fetchImpl }), { text: '', segments: [] });
+    } finally { console.error = original; }
+  });
+});
+
 test('recognize stops asking again after a few empty answers', async () => {
   await withGoogleEnv(async () => {
     let calls = 0;
