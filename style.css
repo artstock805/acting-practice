@@ -1,34 +1,38 @@
-/* 미니멀 다크: 무채색 검정 바탕 + 주황 포인트 하나, 고딕체로 통일 */
+/* 불 꺼진 연습실(짙은 남색) + 무대 조명 호박색 하나. 지금 대사 카드만 손에 든 대본 종이처럼 밝게 */
 :root {
-  --stage: #0e0f12;     /* 바탕 */
-  --stage-2: #17191e;   /* 카드·입력칸 */
-  --stage-3: #1f2229;   /* 카드 위 강조 */
-  --paper: #e9eaee;     /* 본문 글씨 */
-  --paper-ink: #e9eaee; /* 카드 위 글씨 */
-  --muted: #8b8f99;
-  --spot: #ff8a3d;
-  --mine: #ff5d5d;
+  --stage: #0c0f15;     /* 바탕: 불 꺼진 객석 */
+  --stage-2: #141923;   /* 카드·입력칸 */
+  --stage-3: #1c2330;   /* 카드 위 강조 */
+  --paper: #e8eaf0;     /* 본문 글씨 */
+  --paper-ink: #e8eaf0; /* 어두운 카드 위 글씨 */
+  --muted: #8e96a6;
+  --spot: #f4b740;      /* 무대 조명 (텅스텐 호박색) */
+  --spot-hover: #ffc95e;
+  --mine: #ff6b6b;      /* 내 배역 */
   --ok: #4cc38a;
-  --bad: #ff6b6b;
-  --line: #262932;
-  --serif: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
-  --sans: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+  --bad: #ff7a70;
+  --line: #262e3d;
+  --script: #eeeff1;    /* 대본 종이 */
+  --script-ink: #1b1f27;
+  --serif: 'Gowun Batang', 'Batang', serif;   /* 대본 글씨 */
+  --sans: 'IBM Plex Sans KR', 'Malgun Gothic', sans-serif;
   --radius-sm: 8px;
-  --radius-lg: 12px;
+  --radius-lg: 14px;
 }
 
 * { box-sizing: border-box; }
-html { background: var(--stage); }
+html { background: var(--stage); color-scheme: dark; }   /* 스크롤바·기본 입력 칸도 어두운 화면에 맞춤 */
 body { margin: 0; background: var(--stage); color: var(--paper); font-family: var(--sans); min-height: 100vh; }
 button, input, select, textarea { font: inherit; }
 select, input[type=text], input[type=url] { background: var(--stage); color: var(--paper); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; }
 input[type=range], input[type=checkbox] { accent-color: var(--spot); }
 
-.top { display: flex; align-items: center; gap: 24px; padding: 18px clamp(16px, 4vw, 48px); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-.top h1 { font-size: 1.25rem; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
-nav { display: flex; gap: 4px; }
-.tab { background: none; border: 0; color: var(--muted); padding: 8px 14px; border-radius: var(--radius-sm); cursor: pointer; }
-.tab.active { background: var(--stage-2); color: #fff; font-weight: 800; box-shadow: inset 0 -2px 0 var(--spot); }
+.top { display: flex; align-items: center; gap: 24px; padding: 18px clamp(16px, 4vw, 48px); border-bottom: 1px solid var(--line); flex-wrap: wrap;
+  background: radial-gradient(120% 140% at 50% -60%, color-mix(in srgb, var(--spot) 10%, transparent), transparent 60%); }
+.top h1 { font-family: var(--serif); font-size: 1.35rem; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+nav { display: flex; gap: 2px; padding: 3px; background: var(--stage-2); border: 1px solid var(--line); border-radius: 12px; }
+.tab { background: none; border: 0; color: var(--muted); padding: 8px 14px; border-radius: 9px; cursor: pointer; font-weight: 500; }
+.tab.active { background: var(--stage-3); color: var(--paper); font-weight: 700; box-shadow: inset 0 -2px 0 var(--spot); }
 .tab:disabled { opacity: 0.35; cursor: not-allowed; }
 .tab:not(:disabled):not(.active):hover { color: var(--paper); }
 
@@ -50,10 +54,11 @@ textarea:focus, select:focus, input[type=text]:focus, input[type=url]:focus { ou
 .row { display: flex; gap: 10px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
 .spacer { flex: 1; }
 .primary, .ghost { border-radius: 10px; padding: 10px 18px; cursor: pointer; transition: transform 120ms, background 120ms, border-color 120ms; }
-.primary { background: var(--spot); color: #111; border: 0; font-weight: 800; }
-.primary:hover { background: #ff9d5c; }
-.ghost { background: var(--stage-2); color: var(--paper); border: 1px solid var(--line); }
-.ghost:hover { border-color: var(--spot); }
+.primary { background: var(--spot); color: var(--script-ink); border: 0; font-weight: 700; box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--spot) 70%, transparent); }
+.primary:hover { background: var(--spot-hover); }
+.primary:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
+.ghost { background: var(--stage-2); color: var(--paper); border: 1px solid var(--line); font-weight: 500; }
+.ghost:hover { border-color: color-mix(in srgb, var(--spot) 70%, var(--line)); background: var(--stage-3); }
 button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); outline-offset: 2px; }
 .primary:active, .ghost:active { transform: scale(0.97); }
 .file-btn { display: inline-block; }
@@ -117,15 +122,17 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .stage { cursor: zoom-in; }
 
-/* 대사 카드 */
-.line-card { background: var(--stage-2); color: var(--paper-ink); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 22px 26px; margin-top: -18px; position: relative;
-  margin-inline: clamp(0px, 3vw, 28px); min-height: 160px; border-left: 3px solid var(--spot); transition: border-color 200ms; }
-.line-card.is-mine { border-left-color: var(--mine); }
-.line-head { display: flex; gap: 10px; align-items: baseline; font-weight: 800; letter-spacing: 0.02em; }
-.note-chip { font-weight: 400; font-size: 0.85rem; padding: 2px 10px; border-radius: 999px; background: #ffffff14; }
+/* 대사 카드: 손에 든 대본 한 장 (어두운 무대 위에서 유일하게 밝은 면). 종이 위라 글씨·채점 색을 짙게 바꿈 */
+.line-card { --muted: #5f6676; --ok: #13804c; --bad: #c8372d;
+  background: var(--script); color: var(--script-ink); border: 0; border-radius: 6px 6px var(--radius-lg) var(--radius-lg); padding: 22px 26px 20px; margin-top: -18px; position: relative;
+  margin-inline: clamp(0px, 3vw, 28px); min-height: 160px; box-shadow: inset 4px 0 0 var(--spot), 0 18px 40px -18px #000; transition: box-shadow 200ms; }
+.line-card.is-mine { box-shadow: inset 4px 0 0 var(--mine), 0 18px 40px -18px #000; }
+.line-head { display: flex; gap: 10px; align-items: baseline; font-weight: 700; color: var(--muted); font-size: 0.95rem; }
+.line-card.is-mine .line-head { color: #c4433b; }
+.note-chip { font-weight: 400; font-size: 0.85rem; padding: 2px 10px; border-radius: 999px; background: #1b1f2712; color: var(--script-ink); }
 .note-chip:empty { display: none; }
-.line-text { font-family: var(--serif); font-size: clamp(1.2rem, 2.6vw, 1.6rem); line-height: 1.6; margin-top: 8px; }
-.line-text.is-hidden .masked { color: #0000; text-shadow: 0 0 12px #fff6; user-select: none; }
+.line-text { font-family: var(--serif); font-size: clamp(1.25rem, 2.7vw, 1.65rem); line-height: 1.65; margin-top: 8px; }
+.line-text.is-hidden .masked { color: #0000; text-shadow: 0 0 12px #1b1f2766; user-select: none; }
 .line-diff { margin-top: 10px; font-family: var(--serif); }
 .line-diff .w { padding: 0 2px; border-radius: 3px; }
 .line-diff .w.ok { color: var(--ok); }
@@ -140,7 +147,7 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .progress { height: 4px; background: var(--line); border-radius: 4px; margin-top: 16px; overflow: hidden; }
 #progress-bar { height: 100%; width: 0; background: var(--spot); transition: width 300ms; }
 
-.transcript { list-style: none; padding: 0; margin-top: 24px; max-height: 280px; overflow-y: auto; font-size: 0.92rem; color: var(--muted); }
+.transcript { list-style: none; padding: 0; margin-top: 24px; max-height: 280px; overflow-y: auto; font-family: var(--serif); font-size: 0.95rem; line-height: 1.6; color: var(--muted); }
 .transcript li { padding: 6px 0; border-bottom: 1px dashed var(--line); cursor: pointer;
   content-visibility: auto; contain-intrinsic-size: auto 2.4em; }  /* 긴 대본: 화면 밖 줄은 그리지 않음 */
 .transcript li:hover { color: var(--paper); }
@@ -237,7 +244,6 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
   body.practice-mode .stage-direction { -webkit-line-clamp: 1; margin-top: 2px; }   /* 낮은 무대: 한 줄만 */
   body.practice-mode .line-card { min-height: 0; flex: none; }   /* 화면 높이에 눌려 글자가 카드 밖으로 넘치지 않게 */
   body.practice-mode .line-text { max-height: 24vh; overflow-y: auto; }   /* 아주 긴 대사는 카드 안에서만 스크롤 */
-}
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 .transcript li .take { float: right; margin-left: 8px; background: none; border: 0; cursor: pointer; padding: 0 4px; font-size: 1rem; }
