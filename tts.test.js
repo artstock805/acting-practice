@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { createServer } = require('./server.js');
+const { readingMarkup, createGoogleSynthesizer } = require('./tts.js');
 
 async function withServer(opts, fn) {
   const server = createServer(opts);
@@ -105,4 +106,41 @@ test('English Google voices are accepted and synthesized in English', async () =
     assert.strictEqual((await post(base, { text: 'Bonjour', voice: 'fr-FR-Chirp3-HD-Kore' })).status, 400);
   });
   assert.strictEqual(calls[0].voice, 'en-US-Chirp3-HD-Kore');
+});
+
+// 의미읽기: 의미 단위에서 쉬도록 Chirp 3의 쉼 표시([pause …])를 넣음 (그냥 글자로 보내면 문장 끝에서만 쉼)
+test('a "..." inside a line gets a long pause, one at the end does not', () => {
+  assert.strictEqual(readingMarkup('그건...', VOICE), '그건...');
+  assert.strictEqual(readingMarkup('혹시 웃어 주면 어떡하나... 근데 컵만 닦았어.', VOICE), '혹시 웃어 주면 어떡하나... [pause long] 근데 컵만 닦았어.');
+  assert.strictEqual(readingMarkup('그건… 미안해.', VOICE), '그건… [pause long] 미안해.');
+});
+
+test('sentences inside one line are separated by a pause', () => {
+  assert.strictEqual(readingMarkup('쉬워서 하는 말 아니야. 3년 동안 매일 연습한 말이야.', VOICE), '쉬워서 하는 말 아니야. [pause] 3년 동안 매일 연습한 말이야.');
+  assert.strictEqual(readingMarkup('진심이야? 아니.', VOICE), '진심이야? [pause] 아니.');
+});
+
+test('a long sentence without commas gets short breaths after connecting endings', () => {
+  assert.strictEqual(readingMarkup('3년 만에 갑자기 나타나서 커피 한 잔 시켜 놓고 두 시간째야.', VOICE),
+    '3년 만에 갑자기 나타나서 [pause short] 커피 한 잔 시켜 놓고 [pause short] 두 시간째야.');
+  assert.strictEqual(readingMarkup('할 말 있으면 해.', VOICE), '할 말 있으면 해.');                  // 짧은 문장은 끊지 않음
+  assert.strictEqual(readingMarkup('시험은 세 번 떨어졌고, 통장엔 돈이 없었어.', VOICE), '시험은 세 번 떨어졌고, 통장엔 돈이 없었어.');   // 쉼표가 이미 끊어 줌
+});
+
+test('dashes pause, English lines skip the Korean ending rule, plain lines stay as they are', () => {
+  assert.strictEqual(readingMarkup('잠깐 — 그게 무슨 말이야?', VOICE), '잠깐 — [pause] 그게 무슨 말이야?');
+  assert.strictEqual(readingMarkup('Wait... I mean it. Really.', 'en-US-Chirp3-HD-Kore'), 'Wait... [pause long] I mean it. [pause] Really.');
+  assert.strictEqual(readingMarkup('늦었네.', VOICE), '늦었네.');
+});
+
+test('Google gets markup only when pauses were added', async () => {
+  const sent = [];
+  const original = global.fetch;
+  global.fetch = async (_url, init) => { sent.push(JSON.parse(init.body).input); return { ok: true, json: async () => ({ audioContent: '' }) }; };
+  try {
+    const synthesize = createGoogleSynthesizer({ getAuth: async () => ({ token: 't' }), timeoutMs: 1000 });
+    await synthesize({ text: '늦었네.', voice: VOICE, rate: 1 });
+    await synthesize({ text: '진심이야? 아니.', voice: VOICE, rate: 1 });
+  } finally { global.fetch = original; }
+  assert.deepStrictEqual(sent, [{ text: '늦었네.' }, { markup: '진심이야? [pause] 아니.' }]);
 });
