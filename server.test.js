@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const net = require('node:net');
-const { createServer, createRateLimiter, validateWav, parseWavHeader, clientIp, lineHint, speechContexts, MAX_AUDIO_SECONDS } = require('./server.js');
+const { createServer, createRateLimiter, validateWav, parseWavHeader, clientIp, lineHint, sttRequest, trimSilence, recognize, sttTimeoutMs, MAX_AUDIO_SECONDS } = require('./server.js');
 const { encodeWav } = require('./audiokit.js');
 
 const wavOf = (seconds, rate = 16000) => Buffer.from(encodeWav(new Float32Array(Math.round(seconds * rate)), rate));
@@ -167,14 +167,134 @@ test('hints are optional, length-limited and stripped of control characters', ()
   assert.strictEqual(lineHint({ headers: { 'x-line-hint': encodeURIComponent('가'.repeat(500)) } }).length, 300);
 });
 
-test('speechContexts split a hint into phrases of at most 100 characters', () => {
-  const ctx = speechContexts('3년 만에 갑자기 나타나서 커피 한 잔 시켜 놓고 두 시간째야. 할 말 있으면 해.');
-  assert.strictEqual(ctx.length, 1);
-  assert.ok(ctx[0].boost > 0);
-  assert.ok(ctx[0].phrases.every((p) => p.length <= 100 && p.length > 0));
-  assert.ok(ctx[0].phrases.includes('할 말 있으면 해'));
-  assert.deepStrictEqual(speechContexts(''), []);
-  assert.ok(speechContexts('가'.repeat(250))[0].phrases.every((p) => p.length <= 100));
+test('sttRequest asks Chirp 3 with the line as a hint, split into phrases of at most 100 characters', () => {
+  const pcm = Buffer.alloc(3200);
+  const req = sttRequest(pcm, 16000, '3년 만에 갑자기 나타나서 커피 한 잔 시켜 놓고 두 시간째야. 할 말 있으면 해.', 'ko-KR');
+  assert.strictEqual(req.config.model, 'chirp_3');
+  assert.deepStrictEqual(req.config.languageCodes, ['ko-KR']);
+  assert.deepStrictEqual(req.config.explicitDecodingConfig, { encoding: 'LINEAR16', sampleRateHertz: 16000, audioChannelCount: 1 });
+  assert.strictEqual(req.content, pcm.toString('base64'));
+  const phrases = req.config.adaptation.phraseSets[0].inlinePhraseSet.phrases;
+  assert.ok(phrases.every((p) => p.value.length <= 100 && p.value.length > 0 && p.boost > 0));
+  assert.ok(phrases.some((p) => p.value === '할 말 있으면 해'));
+  assert.ok(sttRequest(pcm, 16000, '가'.repeat(250), 'ko-KR').config.adaptation.phraseSets[0].inlinePhraseSet.phrases.every((p) => p.value.length <= 100));
+  assert.strictEqual(sttRequest(pcm, 16000, '', 'ko-KR').config.adaptation, undefined);
+  // 한 글자 대사도 힌트로 넘어감 (이게 빠지면 '네'를 자주 놓침)
+  assert.deepStrictEqual(sttRequest(pcm, 16000, '네.', 'ko-KR').config.adaptation.phraseSets[0].inlinePhraseSet.phrases.map((p) => p.value), ['네']);
+});
+
+// 16bit PCM: 앞 1.4초 무음 + 0.3초 소리 + 뒤 6초 무음 (휴대폰 녹음처럼)
+function pcmWithSpeech(rate = 16000, before = 1.4, speech = 0.3, after = 6) {
+  const n = (s) => Math.round(s * rate);
+  const pcm = Buffer.alloc((n(before) + n(speech) + n(after)) * 2);
+  for (let i = 0; i < n(speech); i++) pcm.writeInt16LE(Math.round(8000 * Math.sin(i / 5)), (n(before) + i) * 2);
+  for (let i = 0; i < pcm.length / 2; i++) if (i % 7 === 0) pcm.writeInt16LE(pcm.readInt16LE(i * 2) + 30, i * 2);   // 약한 잡음
+  return pcm;
+}
+
+test('trimSilence cuts the long silence around a short word but keeps a margin', () => {
+  const rate = 16000;
+  const trimmed = trimSilence(pcmWithSpeech(rate), rate);
+  const seconds = trimmed.length / 2 / rate;
+  assert.ok(seconds >= 0.3 + 0.4 && seconds <= 0.3 + 0.6, `trimmed to ${seconds}s`);   // 소리 0.3초 + 앞뒤 여유 0.25초씩
+  let loud = 0;
+  for (let i = 0; i < trimmed.length / 2; i++) if (Math.abs(trimmed.readInt16LE(i * 2)) > 1000) loud++;
+  assert.ok(loud > rate * 0.25, 'the spoken part is kept');
+});
+
+test('trimSilence also trims around quietly spoken words', () => {
+  const rate = 16000;
+  const n = (s) => Math.round(s * rate);
+  const pcm = Buffer.alloc((n(1.4) + n(0.3) + n(6)) * 2);
+  for (let i = 0; i < n(0.3); i++) pcm.writeInt16LE(Math.round(80 * Math.sin(i / 5)), (n(1.4) + i) * 2);   // 약 -55dB
+  const seconds = trimSilence(pcm, rate).length / 2 / rate;
+  assert.ok(seconds <= 0.3 + 0.6, `trimmed to ${seconds}s`);
+});
+
+test('trimSilence ignores a short click at the start (e.g. tapping the screen)', () => {
+  const rate = 16000;
+  const pcm = pcmWithSpeech(rate);
+  for (let i = 0; i < rate * 0.005; i++) pcm.writeInt16LE(i % 2 ? 30000 : -30000, (100 + i) * 2);   // 5ms 딸깍
+  const seconds = trimSilence(pcm, rate).length / 2 / rate;
+  assert.ok(seconds <= 0.3 + 0.6, `trimmed to ${seconds}s`);
+});
+
+// Chirp 3은 같은 요청에도 가끔 빈 결과를 줌 → 말소리가 있었는데 비면 한 번 더 물어봄
+async function withGoogleEnv(fn) {
+  const saved = { token: process.env.GCP_ACCESS_TOKEN, project: process.env.GCP_PROJECT };
+  process.env.GCP_ACCESS_TOKEN = 'test-token';
+  process.env.GCP_PROJECT = 'test-project';
+  try { await fn(); } finally {
+    if (saved.token === undefined) delete process.env.GCP_ACCESS_TOKEN; else process.env.GCP_ACCESS_TOKEN = saved.token;
+    if (saved.project === undefined) delete process.env.GCP_PROJECT; else process.env.GCP_PROJECT = saved.project;
+  }
+}
+const googleReply = (texts) => ({ ok: true, json: async () => ({ results: texts.map((t) => ({ alternatives: [{ transcript: t }] })) }) });
+const wavWith = (pcm, rate = 16000) => {
+  const wav = Buffer.concat([Buffer.from(encodeWav(new Float32Array(0), rate)), pcm]);
+  wav.writeUInt32LE(36 + pcm.length, 4);
+  wav.writeUInt32LE(pcm.length, 40);
+  return wav;
+};
+
+test('recognize asks again once when speech was heard but the answer is empty', async () => {
+  await withGoogleEnv(async () => {
+    const calls = [];
+    const replies = [googleReply([]), googleReply(['네.'])];
+    const fetchImpl = async (url, init) => { calls.push({ url, body: JSON.parse(init.body) }); return replies.shift(); };
+    const wav = wavWith(pcmWithSpeech());
+    const result = await recognize(wav, parseWavHeader(wav), '네.', 'ko-KR', { fetchImpl });
+    assert.deepStrictEqual(result, { text: '네.', segments: [['네.']] });
+    assert.strictEqual(calls.length, 2);
+    assert.match(calls[0].url, /\/v2\/projects\/test-project\/locations\/us\/recognizers\/_:recognize$/);
+    assert.ok(Buffer.from(calls[0].body.content, 'base64').length < 16000 * 2, 'long silence was trimmed before sending');
+  });
+});
+
+test('a failed retry keeps the first empty answer instead of turning into an error', async () => {
+  await withGoogleEnv(async () => {
+    const replies = [googleReply([]), { ok: false, status: 503, text: async () => 'busy' }];
+    const fetchImpl = async () => replies.shift();
+    const original = console.error;
+    console.error = () => {};
+    try {
+      const wav = wavWith(pcmWithSpeech());
+      assert.deepStrictEqual(await recognize(wav, parseWavHeader(wav), '네.', 'ko-KR', { fetchImpl }), { text: '', segments: [] });
+    } finally { console.error = original; }
+  });
+});
+
+test('long recordings get more time from the speech server (40s lines timed out at a flat 10s)', () => {
+  assert.strictEqual(sttTimeoutMs(1), 10_500);
+  assert.ok(sttTimeoutMs(40) >= 30_000);
+  assert.ok(sttTimeoutMs(55) < 60_000);
+});
+
+test('recognize stops asking again after a few empty answers', async () => {
+  await withGoogleEnv(async () => {
+    let calls = 0;
+    const fetchImpl = async () => { calls++; return googleReply([]); };
+    const wav = wavWith(pcmWithSpeech());
+    assert.deepStrictEqual(await recognize(wav, parseWavHeader(wav), '네.', 'ko-KR', { fetchImpl }), { text: '', segments: [] });
+    assert.strictEqual(calls, 3);
+  });
+});
+
+test('recognize does not ask again when the recording has no speech', async () => {
+  await withGoogleEnv(async () => {
+    let calls = 0;
+    const fetchImpl = async () => { calls++; return googleReply([]); };
+    const wav = wavWith(Buffer.alloc(16000 * 2 * 3));
+    assert.deepStrictEqual(await recognize(wav, parseWavHeader(wav), '네.', 'ko-KR', { fetchImpl }), { text: '', segments: [] });
+    assert.strictEqual(calls, 1);
+  });
+});
+
+test('trimSilence leaves audio with no clear speech untouched', () => {
+  const silent = Buffer.alloc(16000 * 2);
+  assert.strictEqual(trimSilence(silent, 16000), silent);
+  const speechOnly = pcmWithSpeech(16000, 0, 0.5, 0);
+  assert.strictEqual(trimSilence(speechOnly, 16000).length, speechOnly.length);
 });
 
 test('pdf.js module and character maps are served with the right types', async () => {

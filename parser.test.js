@@ -95,6 +95,15 @@ test('silenceForLine waits longer for long lines and lines with pauses', () => {
   assert.ok(pause > K.silenceForLine('그건 미안해.'));
 });
 
+test('minSpeakMsForLine is about how long the line takes to say, never past the take limit', () => {
+  const short = K.minSpeakMsForLine('네.');
+  const long = '3년 만에 갑자기 나타나서 커피 한 잔 시켜 놓고 두 시간째야. 할 말 있으면 해.';
+  assert.ok(short <= 600, `short ${short}`);
+  assert.ok(K.minSpeakMsForLine(long) >= 4000, `long ${K.minSpeakMsForLine(long)}`);
+  const huge = '가'.repeat(1000);
+  assert.ok(K.minSpeakMsForLine(huge) < K.takeMsForLine(huge));
+});
+
 test('very short lines need the exact sound (no partial credit for 1~2 syllables)', () => {
   assert.strictEqual(K.similarity('응.', '음'), 0);
   assert.strictEqual(K.similarity('네.', '내'), 0);

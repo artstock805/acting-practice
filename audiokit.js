@@ -10,6 +10,7 @@
     silenceMs: 1400,     // 말한 뒤 이만큼 조용하면 끝 (speech.js의 SILENCE_MS와 같은 감각)
     noSpeechMs: 8000,    // 아무 말도 없으면 이만큼 기다리다 포기
     maxMs: 18000,        // 대사 길이를 모를 때 기본값 (긴 대사는 부르는 쪽이 takeMsForLine으로 늘림, 서버 한도 55초)
+    minMs: 0,            // 이보다 일찍 조용해지면 숨 고르기로 보고 끝내지 않음 (긴 대사는 minSpeakMsForLine으로 넘겨 받음)
   };
 
   // 실제 마이크는 조용한 방에서도 이보다 큰 잡음이 잡힘. 내내 이보다 작으면 측정이 안 되는 상태(오디오 멈춤 등)
@@ -41,7 +42,7 @@
         const silentResult = peak < NO_SIGNAL_PEAK ? 'no-signal' : 'no-speech';
         if (elapsed >= o.maxMs) return spoke ? 'max' : silentResult;
         if (!spoke) return elapsed >= o.noSpeechMs ? silentResult : null;
-        return now - heardAt >= o.silenceMs ? 'speech-end' : null;
+        return now - heardAt >= o.silenceMs && elapsed >= o.minMs ? 'speech-end' : null;
       },
       get spoke() { return spoke; },
       get peak() { return peak; },

@@ -544,6 +544,16 @@
     return Math.round(Math.min(TAKE_MAX_MS, Math.max(TAKE_MIN_MS, TAKE_BASE_MS + chars * TAKE_PER_CHAR_MS)));
   }
 
+  // 이 대사를 말하는 데 걸리는 최소 시간(ms): 빠르게 말해도 글자당 약 0.15초. 서버 채점은 소리 크기만 보므로
+  // 이보다 일찍 조용해지면 대사 중간의 숨 고르기로 보고 끝내지 않음 (휴대폰 내장 인식은 들린 말로 판단했음)
+  const MIN_SPEAK_PER_CHAR_MS = 150;
+  function minSpeakMsForLine(text) {
+    const n = normalize(text);
+    const latin = (n.match(/[a-z]/g) || []).length;
+    const chars = n.length - latin + latin * LATIN_CHAR_WEIGHT;
+    return Math.round(Math.min(takeMsForLine(text) - TAKE_BASE_MS, chars * MIN_SPEAK_PER_CHAR_MS));
+  }
+
   function firstLetterHint(text) {
     return String(text || '').split(/\s+/).map((w) => w.replace(/^([^\p{L}\p{N}]*[\p{L}\p{N}])[\s\S]*$/u, '$1…')).join(' ');
   }
@@ -578,7 +588,7 @@
   function detectMood(text) { return findByWords(MOODS, text); }
   function detectEmotion(text) { return findByWords(EMOTIONS, text); }
 
-  const api = { parseScript, detectLanguage, lineLanguage, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, takeMsForLine, alignProgress, keepListening, firstLetterHint, detectMood, detectEmotion, normalize };
+  const api = { parseScript, detectLanguage, lineLanguage, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, takeMsForLine, minSpeakMsForLine, alignProgress, keepListening, firstLetterHint, detectMood, detectEmotion, normalize };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ScriptKit = api;
 })(this);

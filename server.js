@@ -20,7 +20,9 @@ const RATE_LIMIT = { max: 30, windowMs: 60_000 };  // IP당 분당 요청 수
 const GLOBAL_LIMIT = { max: 300, windowMs: 60_000 };  // 인스턴스 전체 분당 요청 수 (IP를 바꿔 가며 보내는 남용 대비)
 const MAX_IN_FLIGHT = 10;          // 동시에 Google로 보내는 요청 수
 const UPSTREAM_TIMEOUT_MS = 10_000;
-const STT_URL = 'https://speech.googleapis.com/v1/speech:recognize';
+// Speech-to-Text v2 (Chirp 3). v1 latest_long은 '네'·'응' 같은 한 글자 대사를 거의 못 알아들었음
+const STT_LOCATION = 'us';
+const sttUrl = (project) => `https://${STT_LOCATION}-speech.googleapis.com/v2/projects/${project}/locations/${STT_LOCATION}/recognizers/_:recognize`;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -101,6 +103,21 @@ async function getAuth() {
   return { token: await tokenRequest };
 }
 
+// v2 주소에는 프로젝트 ID가 들어감: 로컬은 환경 변수, Cloud Run은 메타데이터 서버에서 한 번 받아 둠
+let projectRequest = null;
+function getProjectId() {
+  const fromEnv = process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT;
+  if (fromEnv) return Promise.resolve(fromEnv);
+  if (!projectRequest) {
+    projectRequest = fetch('http://metadata.google.internal/computeMetadata/v1/project/project-id', {
+      headers: { 'Metadata-Flavor': 'Google' },
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    }).then((res) => { if (!res.ok) throw new Error(`metadata project ${res.status}`); return res.text(); })
+      .catch((err) => { projectRequest = null; throw err; });   // 실패하면 다음 요청에서 다시 받음
+  }
+  return projectRequest;
+}
+
 async function fetchMetadataToken() {
   const res = await fetch('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token', {
     headers: { 'Metadata-Flavor': 'Google' },
@@ -116,10 +133,12 @@ async function fetchMetadataToken() {
 // 앱은 사용자가 말할 대사를 알고 있음 → Google에 '이 문장이 나올 가능성이 높다'고 알려 주면 인식률이 크게 오름
 const MAX_HINT_CHARS = 300;
 const MAX_PHRASE_CHARS = 100;   // Speech-to-Text v1 phrase 한 개의 길이 한도
-const HINT_BOOST = 15;          // 0~20. 높을수록 힌트 쪽으로 강하게 끌어당김
-const ALTERNATIVES = 5;
-// 합성 음성으로 비교했을 때 ko-KR 대사 인식이 가장 정확했던 모델 (default 97% → latest_long 100%)
-const STT_MODEL = 'latest_long';
+const HINT_BOOST = 20;          // 0~20. 높을수록 힌트 쪽으로 강하게 끌어당김 (한 글자 대사는 최대여야 잘 잡힘)
+// 합성 음성(4가지 목소리)으로 비교: 한 글자 대사 '네·응·예·왜·뭐·아' 24개를 latest_long은 거의 0, Chirp 3 + 힌트 + 무음 자르기는 24/24
+// 긴 대사도 그대로 정확함
+const STT_MODEL = 'chirp_3';
+const EMPTY_RETRIES = 2;   // 말소리가 있는데 빈 결과면 다시 묻는 횟수 (합성 음성 한 글자 대사: 1번 97% → 2번에서 남은 것까지)
+const RETRY_WINDOW_MS = 6000;   // 이만큼 지났으면 더 묻지 않음 (채점 대기가 길어지지 않게)
 
 // 대본 언어에 맞춰 인식 (X-Speech-Lang). 허용 목록 밖이면 한국어
 const SPEECH_LANGS = new Set(['ko-KR', 'en-US']);
@@ -137,36 +156,92 @@ function lineHint(req) {
 }
 
 // 문장부호에서 나누고, 그래도 긴 조각은 100자 단위로 자름
-function speechContexts(hint) {
-  const phrases = String(hint || '').split(/[.!?…,~]+/).map((s) => s.trim()).filter(Boolean)
+function hintPhrases(hint) {
+  return String(hint || '').split(/[.!?…,~]+/).map((s) => s.trim()).filter(Boolean)
     .flatMap((s) => s.match(new RegExp(`[\\s\\S]{1,${MAX_PHRASE_CHARS}}`, 'g')).map((p) => p.trim()))
     .filter(Boolean);
-  return phrases.length ? [{ phrases, boost: HINT_BOOST }] : [];
 }
 
-async function recognize(wav, info, hint = '', languageCode = 'ko-KR') {
+// Speech v2 요청 본문 (pcm: 16bit 모노)
+function sttRequest(pcm, sampleRate, hint, languageCode) {
+  const phrases = hintPhrases(hint);
+  return {
+    config: {
+      explicitDecodingConfig: { encoding: 'LINEAR16', sampleRateHertz: sampleRate, audioChannelCount: 1 },
+      languageCodes: [languageCode],
+      model: STT_MODEL,
+      ...(phrases.length ? { adaptation: { phraseSets: [{ inlinePhraseSet: { phrases: phrases.map((value) => ({ value, boost: HINT_BOOST })) } }] } } : {}),
+    },
+    content: pcm.toString('base64'),
+  };
+}
+
+// 앞뒤 무음 자르기: 휴대폰 녹음은 말 앞뒤로 몇 초씩 조용한데, 한 글자 대사는 긴 무음 속에 있으면 인식기가 흘려 버림
+// 60ms 이상 이어진 소리 중 가장 큰 것의 10%를 넘는 구간만 남기고 앞뒤로 0.25초 여유를 둠
+// (화면을 누르는 '딸깍' 같은 짧은 소리는 말로 보지 않음). 뚜렷한 말소리가 없으면 null
+const TRIM_FRAME_SECONDS = 0.02;
+const TRIM_SUSTAIN_FRAMES = 3;
+const TRIM_MARGIN_SECONDS = 0.25;
+const TRIM_PEAK_RATIO = 0.1;
+const TRIM_MIN_RMS = 0.001;   // 이보다 작으면 말소리로 보지 않음 (약 -60dB. 작게 말해도 자르도록 낮게)
+function speechBounds(pcm, sampleRate) {
+  const samples = pcm.length >> 1;
+  const frame = Math.max(1, Math.round(sampleRate * TRIM_FRAME_SECONDS));
+  const levels = [];
+  for (let start = 0; start + frame <= samples; start += frame) {
+    let sum = 0;
+    for (let i = start; i < start + frame; i++) { const v = pcm.readInt16LE(i * 2) / 32768; sum += v * v; }
+    levels.push(Math.sqrt(sum / frame));
+  }
+  // 프레임마다 '여기서부터 TRIM_SUSTAIN_FRAMES개 동안 가장 작은 소리' → 짧게 튄 소리는 작게 나옴
+  const sustained = levels.slice(0, Math.max(0, levels.length - TRIM_SUSTAIN_FRAMES + 1))
+    .map((_, i) => Math.min(...levels.slice(i, i + TRIM_SUSTAIN_FRAMES)));
+  const peak = sustained.reduce((m, v) => Math.max(m, v), 0);
+  if (peak < TRIM_MIN_RMS) return null;
+  const threshold = Math.max(TRIM_MIN_RMS, peak * TRIM_PEAK_RATIO);
+  const first = sustained.findIndex((v) => v >= threshold);
+  const last = sustained.findLastIndex((v) => v >= threshold) + TRIM_SUSTAIN_FRAMES - 1;
+  const margin = Math.round(sampleRate * TRIM_MARGIN_SECONDS);
+  return { from: Math.max(0, first * frame - margin), to: Math.min(samples, (last + 1) * frame + margin) };
+}
+
+function trimSilence(pcm, sampleRate) {
+  const bounds = speechBounds(pcm, sampleRate);
+  if (!bounds || (bounds.from === 0 && bounds.to === pcm.length >> 1)) return pcm;
+  return pcm.subarray(bounds.from * 2, bounds.to * 2);
+}
+
+// Chirp 3은 녹음이 길수록 오래 걸림 (35~40초짜리 긴 대사가 10초 제한에 걸려 실패했음) → 녹음 1초당 0.5초씩 더 기다림
+const STT_TIMEOUT_PER_SECOND_MS = 500;
+const sttTimeoutMs = (seconds) => Math.round(UPSTREAM_TIMEOUT_MS + seconds * STT_TIMEOUT_PER_SECOND_MS);
+
+// fetchImpl은 테스트에서 Google 대신 넣음
+async function recognize(wav, info, hint = '', languageCode = 'ko-KR', { fetchImpl = fetch } = {}) {
   const { token, project } = await getAuth();
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   if (project) headers['x-goog-user-project'] = project;
-  const res = await fetch(STT_URL, {
-    method: 'POST',
-    headers,
-    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-    body: JSON.stringify({
-      config: {
-        encoding: 'LINEAR16', sampleRateHertz: info.sampleRate, languageCode, model: STT_MODEL,
-        maxAlternatives: ALTERNATIVES, speechContexts: speechContexts(hint),
-      },
-      audio: { content: wav.subarray(info.dataOffset, info.dataOffset + info.dataBytes).toString('base64') },
-    }),
-  });
-  if (!res.ok) throw new Error(`speech ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const body = await res.json();
-  // 구간(segment)마다 후보 여러 개 → 앱이 대사와 가장 가까운 후보를 고름. text는 1순위끼리 이은 것
-  const segments = (body.results || [])
-    .map((r) => (r.alternatives || []).map((a) => (a.transcript || '').trim()).filter(Boolean))
-    .filter((alts) => alts.length);
-  return { text: segments.map((alts) => alts[0]).join(' ').trim(), segments };
+  const raw = wav.subarray(info.dataOffset, info.dataOffset + info.dataBytes);
+  const hasSpeech = !!speechBounds(raw, info.sampleRate);
+  const body = JSON.stringify(sttRequest(trimSilence(raw, info.sampleRate), info.sampleRate, hint, languageCode));
+  const url = sttUrl(project || await getProjectId());
+  const once = async () => {
+    const res = await fetchImpl(url, { method: 'POST', headers, signal: AbortSignal.timeout(sttTimeoutMs(info.seconds)), body });
+    if (!res.ok) throw new Error(`speech ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const reply = await res.json();
+    // 구간(segment)마다 후보 → 앱이 대사와 가장 가까운 후보를 고름. text는 1순위끼리 이은 것
+    const segments = (reply.results || [])
+      .map((r) => (r.alternatives || []).map((a) => (a.transcript || '').trim()).filter(Boolean))
+      .filter((alts) => alts.length);
+    return { text: segments.map((alts) => alts[0]).join(' ').trim(), segments };
+  };
+  // Chirp 3은 같은 녹음에도 가끔 빈 결과를 줌 (한 글자 대사에서 잦음) → 말소리가 있었으면 다시 물어봄
+  // 다시 물을 때 실패하면 첫 빈 결과로 돌려줌 (오류로 바꾸지 않음). 너무 오래 걸렸으면 더 묻지 않음
+  const started = Date.now();
+  let result = await once();
+  for (let retry = 0; !result.text && hasSpeech && retry < EMPTY_RETRIES && Date.now() - started < RETRY_WINDOW_MS; retry++) {
+    try { result = await once(); } catch (err) { console.error('[stt] retry', err.message); break; }
+  }
+  return result;
 }
 
 // ---------- HTTP ----------
@@ -359,4 +434,4 @@ if (require.main === module) {
   createServer().listen(port, () => console.log(`acting-practice on :${port} (static: ${ROOT})`));
 }
 
-module.exports = { parseWavHeader, validateWav, createRateLimiter, createServer, clientIp, lineHint, speechLanguage, speechContexts, MAX_AUDIO_SECONDS };
+module.exports = { parseWavHeader, validateWav, createRateLimiter, createServer, clientIp, lineHint, speechLanguage, sttRequest, trimSilence, recognize, sttTimeoutMs, MAX_AUDIO_SECONDS };

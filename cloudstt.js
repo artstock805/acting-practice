@@ -9,6 +9,7 @@
   const POLL_MS = 50;
   const RESUME_WAIT_MS = 500;
   const TIMED_TAKE_MS = 7000;   // 소리 크기를 못 잴 때 녹음할 시간 (그 뒤 서버가 말이 있었는지 판단)
+  const PAUSED_GIVE_UP_MS = 1500;   // 녹음 중 멈춘 오디오가 이만큼 안 켜지면 정해진 시간 녹음으로 바꿈
   const MAX_HINT_CHARS = 300;   // 서버가 받는 힌트 길이 한도와 같게
   const Ctx = root.AudioContext || root.webkitAudioContext;
 
@@ -38,7 +39,8 @@
   // diag: 실패 원인 표시용 { ctx, peak, threshold, outcome, uploadKB }
   // lang: 'ko-KR' | 'en-US' (대본 언어) · maxMs: 이 대사를 녹음할 최대 시간 (긴 대사가 중간에 끊기지 않게)
   // finish(): 소리 크기를 못 재 정해진 시간만큼 녹음할 때, 다 말했으면 기다리지 않고 바로 채점
-  function listen({ onPhase, hint = '', silenceMs, maxMs, lang = 'ko-KR' } = {}) {
+  // minMs: 이보다 일찍 조용해지면 숨 고르기로 보고 끝내지 않음 (긴 대사가 중간에 끊기지 않게)
+  function listen({ onPhase, hint = '', silenceMs, maxMs, minMs, lang = 'ko-KR' } = {}) {
     let stopped = false;
     let timer = null;
     let source = null;
@@ -59,7 +61,9 @@
       if (stopped) { R.discard(); return; }
       const running = await ensureRunning(ctx);
       if (stopped) { R.discard(); return; }
-      const outcome = running ? await detectSpeechEnd() : await timedTake();
+      let outcome = running ? await detectSpeechEnd() : await timedTake();
+      // 녹음 중에 휴대폰이 오디오를 멈춰 다시 켜지지 않으면, 정해진 시간 녹음(✔ 다 말했어요)으로 이어 감
+      if (outcome === 'paused' && !stopped) { clearInterval(timer); outcome = await timedTake(); }
       cleanup();
       if (stopped) return;
       // 소리 크기를 못 재는 경우(no-signal)는 말이 없었다고 단정하지 않고 서버에 맡김
@@ -82,10 +86,19 @@
       source = ctx.createMediaStreamSource(R.getStream());
       source.connect(analyser);
       const frame = new Float32Array(analyser.fftSize);
-      const detector = A.createSilenceDetector({ ...(silenceMs ? { silenceMs } : {}), ...(maxMs ? { maxMs } : {}) });
+      const detector = A.createSilenceDetector({ ...(silenceMs ? { silenceMs } : {}), ...(maxMs ? { maxMs } : {}), ...(minMs ? { minMs } : {}) });
+      let pausedSince = null;
       const outcome = await new Promise((done) => {
         finishLoop = done;
         timer = setInterval(() => {
+          // 휴대폰이 녹음 중에 오디오를 멈추면(suspended) 소리 크기가 0으로 읽혀 '말이 끝남'으로 잘못 판단했음
+          // → 멈춘 동안은 재지 않고 다시 켜 봄. PAUSED_GIVE_UP_MS 동안 안 켜지면 'paused'
+          if (ctx.state !== 'running') {
+            if (pausedSince === null) { pausedSince = Date.now(); ctx.resume().catch(() => {}); }
+            if (Date.now() - pausedSince >= PAUSED_GIVE_UP_MS) done('paused');
+            return;
+          }
+          pausedSince = null;
           analyser.getFloatTimeDomainData(frame);
           const result = detector.update(A.rms(frame), Date.now());
           if (result) done(result);
@@ -155,5 +168,11 @@
     return (await offline.startRendering()).getChannelData(0);
   }
 
-  root.CloudSTT = { checkAvailable, unlock, listen };
+  // 이미 있는 녹음(PC 녹음 등)을 서버에서 글자로 바꿈 → { text, segments }
+  function transcribeRecording(blob, { hint = '', lang = 'ko-KR' } = {}) {
+    unlock();   // 풀 때 쓰는 오디오를 하나만 만들어 계속 씀 (매번 새로 만들면 브라우저 한도에 걸림)
+    return transcribe(blob, undefined, {}, hint, lang);
+  }
+
+  root.CloudSTT = { checkAvailable, unlock, listen, transcribeRecording };
 })(window);

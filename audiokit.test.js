@@ -13,6 +13,16 @@ test('silence detector ends after speech followed by silence', () => {
   assert.strictEqual(d.update(0.01, 1200), 'speech-end');
 });
 
+test('silence detector does not end a long line on a breath before minMs', () => {
+  const d = A.createSilenceDetector({ threshold: 0.1, silenceMs: 1000, maxMs: 20000, minMs: 5000 });
+  assert.strictEqual(d.update(0.5, 200), null);     // 말 시작
+  assert.strictEqual(d.update(0.01, 2000), null);   // 1.8초 숨 고르기: 예전엔 여기서 끝났음
+  assert.strictEqual(d.update(0.01, 4999), null);
+  assert.strictEqual(d.update(0.5, 5200), null);    // 대사 계속
+  assert.strictEqual(d.update(0.01, 6199), null);
+  assert.strictEqual(d.update(0.01, 6200), 'speech-end');
+});
+
 test('silence detector gives up when nobody speaks', () => {
   const d = A.createSilenceDetector({ threshold: 0.1, noSpeechMs: 3000 });
   assert.strictEqual(d.update(0.05, 0), null);
