@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const net = require('node:net');
-const { createServer, createRateLimiter, validateWav, parseWavHeader, clientIp, lineHint, sttRequest, trimSilence, recognize, MAX_AUDIO_SECONDS } = require('./server.js');
+const { createServer, createRateLimiter, validateWav, parseWavHeader, clientIp, lineHint, sttRequest, trimSilence, recognize, sttTimeoutMs, MAX_AUDIO_SECONDS } = require('./server.js');
 const { encodeWav } = require('./audiokit.js');
 
 const wavOf = (seconds, rate = 16000) => Buffer.from(encodeWav(new Float32Array(Math.round(seconds * rate)), rate));
@@ -262,6 +262,12 @@ test('a failed retry keeps the first empty answer instead of turning into an err
       assert.deepStrictEqual(await recognize(wav, parseWavHeader(wav), '네.', 'ko-KR', { fetchImpl }), { text: '', segments: [] });
     } finally { console.error = original; }
   });
+});
+
+test('long recordings get more time from the speech server (40s lines timed out at a flat 10s)', () => {
+  assert.strictEqual(sttTimeoutMs(1), 10_500);
+  assert.ok(sttTimeoutMs(40) >= 30_000);
+  assert.ok(sttTimeoutMs(55) < 60_000);
 });
 
 test('recognize stops asking again after a few empty answers', async () => {

@@ -211,6 +211,10 @@ function trimSilence(pcm, sampleRate) {
   return pcm.subarray(bounds.from * 2, bounds.to * 2);
 }
 
+// Chirp 3은 녹음이 길수록 오래 걸림 (35~40초짜리 긴 대사가 10초 제한에 걸려 실패했음) → 녹음 1초당 0.5초씩 더 기다림
+const STT_TIMEOUT_PER_SECOND_MS = 500;
+const sttTimeoutMs = (seconds) => Math.round(UPSTREAM_TIMEOUT_MS + seconds * STT_TIMEOUT_PER_SECOND_MS);
+
 // fetchImpl은 테스트에서 Google 대신 넣음
 async function recognize(wav, info, hint = '', languageCode = 'ko-KR', { fetchImpl = fetch } = {}) {
   const { token, project } = await getAuth();
@@ -221,7 +225,7 @@ async function recognize(wav, info, hint = '', languageCode = 'ko-KR', { fetchIm
   const body = JSON.stringify(sttRequest(trimSilence(raw, info.sampleRate), info.sampleRate, hint, languageCode));
   const url = sttUrl(project || await getProjectId());
   const once = async () => {
-    const res = await fetchImpl(url, { method: 'POST', headers, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS), body });
+    const res = await fetchImpl(url, { method: 'POST', headers, signal: AbortSignal.timeout(sttTimeoutMs(info.seconds)), body });
     if (!res.ok) throw new Error(`speech ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const reply = await res.json();
     // 구간(segment)마다 후보 → 앱이 대사와 가장 가까운 후보를 고름. text는 1순위끼리 이은 것
@@ -430,4 +434,4 @@ if (require.main === module) {
   createServer().listen(port, () => console.log(`acting-practice on :${port} (static: ${ROOT})`));
 }
 
-module.exports = { parseWavHeader, validateWav, createRateLimiter, createServer, clientIp, lineHint, speechLanguage, sttRequest, trimSilence, recognize, MAX_AUDIO_SECONDS };
+module.exports = { parseWavHeader, validateWav, createRateLimiter, createServer, clientIp, lineHint, speechLanguage, sttRequest, trimSilence, recognize, sttTimeoutMs, MAX_AUDIO_SECONDS };
