@@ -18,13 +18,49 @@ const TTS_GLOBAL_LIMIT = { max: 600, windowMs: 60_000 };
 const DAY_MS = 24 * 60 * 60 * 1000;
 const USED_UP = '오늘 쓸 수 있는 음성 합성 양을 다 썼습니다. 휴대폰 기본 목소리로 바꿔 주세요.';
 
+// 의미읽기: 상대역이 문장 끝에서만 쉬어 기계처럼 들렸음 → 뜻이 끊기는 자리에 Chirp 3 쉼 표시를 넣음 (markup 칸에서만 동작)
+// · 줄 중간의 '...'·'…' 뒤는 길게, 문장과 문장 사이·'—' 뒤는 보통으로
+// · 쉼표 없는 긴 한국어 문장은 이어 주는 말끝(-서·-고·-는데·-지만·-면 …) 뒤에서 짧게 숨을 쉼
+//   (앞에서 7음절 넘게 말했고 뒤에 5음절 넘게 남았을 때만: 짧은 문장을 잘게 끊지 않게. 쉼 표시를 남발하면 오히려 어색해짐)
+// 실측(Chirp 3 HD): '3년 만에 갑자기 나타나서 커피 한 잔 시켜 놓고 두 시간째야.'를 그냥 보내면 한 번, 이렇게 보내면 뜻 단위로 세 번 쉼
+const CONNECTIVE_END = /(?:서|고|는데|은데|던데|지만|면|니까|으니|아도|어도|여도|다가|려고|도록|면서)[.?!]?$/;
+const BREATH_AFTER_SYLLABLES = 7;
+const BREATH_BEFORE_SYLLABLES = 5;
+const syllables = (s) => (s.match(/[가-힣A-Za-z0-9]/g) || []).length;
+
+function breathe(sentence) {
+  if (sentence.includes(',')) return sentence;   // 쉼표가 이미 끊어 줌
+  const words = sentence.split(' ');
+  let total = syllables(sentence);
+  let since = 0;
+  return words.map((word) => {
+    const n = syllables(word);
+    since += n;
+    total -= n;
+    if (since < BREATH_AFTER_SYLLABLES || total < BREATH_BEFORE_SYLLABLES || !CONNECTIVE_END.test(word)) return word;
+    since = 0;
+    return `${word} [pause short]`;
+  }).join(' ');
+}
+
+function readingMarkup(text, voice) {
+  const korean = languageOf(voice) === 'ko-KR';
+  const sentences = text.split(/(?<=[.?!…—])\s+/);
+  return sentences.map((s, i) => {
+    const read = korean ? breathe(s) : s;
+    if (i === sentences.length - 1) return read;
+    return `${read} ${/(\.\.\.|…)$/.test(s) ? '[pause long]' : '[pause]'}`;
+  }).join(' ');
+}
+
 function createGoogleSynthesizer({ getAuth, timeoutMs }) {
   return async function synthesize({ text, voice, rate }) {
     const { token, project } = await getAuth();
+    const markup = readingMarkup(text, voice);
     const res = await fetch(TTS_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(project ? { 'x-goog-user-project': project } : {}) },
-      body: JSON.stringify({ input: { text }, voice: { languageCode: languageOf(voice), name: voice }, audioConfig: { audioEncoding: 'MP3', speakingRate: rate } }),
+      body: JSON.stringify({ input: markup === text ? { text } : { markup }, voice: { languageCode: languageOf(voice), name: voice }, audioConfig: { audioEncoding: 'MP3', speakingRate: rate } }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`tts ${res.status}: ${(await res.text()).slice(0, 200)}`);
@@ -108,4 +144,4 @@ function createTtsHandler({ synthesize, readBody, sendJson, send, clientIp, crea
   };
 }
 
-module.exports = { createTtsHandler, createGoogleSynthesizer, createDailyBudget, parseRequest, MAX_TTS_CHARS };
+module.exports = { createTtsHandler, createGoogleSynthesizer, createDailyBudget, parseRequest, readingMarkup, MAX_TTS_CHARS };
