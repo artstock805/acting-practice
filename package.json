@@ -4,9 +4,15 @@
   "description": "대사 연습 파트너 — Cloud Run 서버 (정적 앱 + 음성 인식·합성·AI 배역 분석)",
   "scripts": {
     "start": "node server.js",
+    "dev": "node --env-file-if-exists=.env server.js",
     "test": "node --test"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.132.1"
+    "@anthropic-ai/sdk": "0.132.1",
+    "@langfuse/otel": "6.1.0",
+    "@langfuse/tracing": "6.1.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.223.0",
+    "@opentelemetry/otlp-exporter-base": "0.223.0",
+    "@opentelemetry/sdk-trace-node": "2.12.0"
   }
 }

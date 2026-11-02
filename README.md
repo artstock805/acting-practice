@@ -85,7 +85,7 @@ S#1. 카페 / 밤          ← 장면 제목
 ## 개인정보 · 저작권
 - 대본은 **내 브라우저 안에만 저장**됩니다. 녹음은 창을 닫으면 사라집니다.
 - **Google 목소리**로 읽을 때는 읽을 대사가 서버를 거쳐 Google Text-to-Speech로 전송됩니다. 서버는 합성한 소리를 잠시 메모리에만 두고(같은 대사 재사용) 저장하지 않습니다.
-- **🤖 AI로 배역 분석** 또는 **🤖 AI로 초목표·관계도 그리기**를 눌렀을 때만 대본 전체가 서버를 거쳐 Claude(Anthropic)로 전송됩니다. 서버는 대본을 저장하지 않습니다.
+- **🤖 AI로 배역 분석** 또는 **🤖 AI로 초목표·관계도 그리기**를 눌렀을 때만 대본 전체가 서버를 거쳐 Claude(Anthropic)로 전송됩니다. 서버는 대본을 저장하지 않습니다. 단, 운영자가 Langfuse 점검을 켠 서버라면 그 요청(대본 포함)과 Claude의 답이 Langfuse에 기록됩니다.
 - Cloud Run 판을 휴대폰에서 녹음을 켜고 쓰면, 내 대사 녹음이 채점을 위해 서버를 거쳐 Google Speech-to-Text로 전송됩니다. 서버는 녹음을 저장하지 않습니다. (PC와 휴대폰 내장 음성 인식도 원래 구글·애플·MS 음성 서비스로 소리를 보냅니다.)
 - **AI 장면 이미지** 옵션을 켰을 때만 장면 제목이 외부 이미지 서비스(Pollinations)로 전송됩니다(기본 꺼짐).
 - 기성 대본을 개인 연습용으로 쓰는 것은 사적 이용 범위지만, **대본을 앱에 넣어 배포하거나 공유하지 마세요.** 들어 있는 예시 대본은 이 앱을 위해 새로 쓴 것입니다.
@@ -113,5 +113,21 @@ gcloud builds submit --config cloudbuild.yaml --project=acting-practice --region
 - 남용 방지: 녹음 20초·1MB까지, IP당 분당 30회, 인스턴스 최대 3개
 - 로컬에서 서버까지 실행: `GCP_ACCESS_TOKEN=$(gcloud auth print-access-token) GCP_PROJECT=acting-practice node server.js` → http://localhost:8080
 - `audiokit.js` 무음 감지·WAV 변환 · `cloudstt.js` 휴대폰 녹음 → 서버 채점 흐름
+
+### Langfuse로 Claude 호출 점검
+`langfuse.js`는 Langfuse 키가 있을 때만 Claude 호출을 [Langfuse Cloud](https://cloud.langfuse.com)에 남깁니다. 키가 없으면 아무 일도 하지 않습니다. 호출 하나가 기록 하나이고, 이름은 용도별로 `claude-analyze`(배역 분석), `claude-insight`(초목표·관계도), `claude-scene-art`(장면 그림 설명)입니다. 기록에는 다음이 담깁니다.
+- 보낸 지시문과 대본, 받은 답(JSON)
+- 모델, 입력·출력 토큰(비용), 걸린 시간
+- 거절·잘림(`refusal`, `max_tokens`)은 WARNING, 실패는 ERROR
+
+Langfuse가 느리거나 멈춰도 답은 늦어야 2초 늦게 나갑니다. 기록에 실패하면 서버 로그에 `[langfuse]`만 남깁니다.
+
+**내 PC에서 쓰기**
+1. cloud.langfuse.com에 가입하고 프로젝트를 만든 뒤 Settings → API Keys에서 키 두 개를 발급합니다.
+2. `.env.example`을 `.env`로 복사해 `ANTHROPIC_API_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`를 채웁니다. 프로젝트가 US 지역이면 `LANGFUSE_BASE_URL=https://us.cloud.langfuse.com`도 넣습니다. `.env`는 git에도 Cloud Build에도 올라가지 않습니다.
+3. `npm run dev`로 서버를 띄우고(http://localhost:8080) 배역 분석이나 장면 그림을 한 번 돌립니다.
+4. Langfuse 화면의 Tracing에서 `claude-…` 기록을 엽니다. 환경 이름은 `local`입니다.
+
+운영(Cloud Run)에서 켜려면 Secret Manager에 `langfuse-public-key`와 `langfuse-secret-key`를 만들고, 배포 설정에 그 두 비밀값을 연결해야 합니다. 아직 연결하지 않았습니다.
 
 MIT License
