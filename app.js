@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v57';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v58';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -530,13 +530,14 @@
     }
   }
 
-  function stopPlayback() {
+  // keepMic: 대사를 옮겨 다닐 때(⏭·통과 처리) 서버 채점이면 마이크를 열어 둠 (닫았다 열면 휴대폰이 허용 창을 다시 띄우기도 함)
+  function stopPlayback({ keepMic = false } = {}) {
     runToken++;
     waiting = false;
     $('btn-done-speaking').hidden = true;
     if (avatarStage) avatarStage.talk(false);
     S.stopSpeaking();
-    R.release();  // 연습을 멈추면 마이크를 놓아 다른 앱·음성 인식이 쓸 수 있게 함
+    if (keepMic) R.discard(); else R.release();  // 연습을 멈추면 마이크를 놓아 다른 앱·음성 인식이 쓸 수 있게 함
     R.stopPlaying();
     resetReplayButton();
     if (listener) { listener.stop(); listener = null; }
@@ -641,6 +642,7 @@
       hint: speechOf(item),
       silenceMs: K.silenceForLine(speechOf(item)),
       maxMs: K.takeMsForLine(speechOf(item)),   // 긴 대사도 끝까지 녹음
+      minMs: K.minSpeakMsForLine(speechOf(item)),   // 대사 중간에 숨 고르느라 조용해져도 끝내지 않음
       onPhase: (phase, ms) => {
         if (token !== runToken) return;
         $('btn-done-speaking').hidden = phase !== 'timed';
@@ -873,7 +875,7 @@
   }
 
   function jumpTo(index, autoplay) {
-    stopPlayback();
+    stopPlayback({ keepMic: useCloudScoring() });
     update({ index: Math.max(0, Math.min(state.items.length - 1, index)) });
     renderItem(state.items[state.index]);
     if (autoplay) play();
