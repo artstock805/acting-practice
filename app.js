@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v52';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v54';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -97,6 +97,8 @@
     renderCast();
     enableTabs();
     showView('cast');
+    // 서버가 있으면 AI 배역 분석·목소리 추천을 바로 돌림. 같은 대본을 다시 분석할 때는 이미 분석한 배역이면 건너뜀 (비용·횟수 제한)
+    if (CT.available && (!sameText || chars.some((c) => !state.cast[c.name].profile))) analyzeCast();
   }
 
   // ---------- 인물 이름 오타 합치기 제안 ----------
@@ -197,7 +199,7 @@
       body.append(tr);
     });
     $('voice-count').textContent = CT.available
-      ? `${scriptLang() === 'en' ? '영어' : '한국어'} Google 목소리 ${VC.castable(scriptLang()).length}가지 중에서 고를 수 있어요. AI 분석을 누르면 배역에 맞게 골라 줍니다.`
+      ? `${scriptLang() === 'en' ? '영어' : '한국어'} Google 목소리 ${VC.castable(scriptLang()).length}가지 중에서 AI가 배역에 맞게 골라 줍니다. 마음에 안 들면 직접 바꾸세요.`
       : voices.length > 1
       ? `이 브라우저의 한국어 음성 ${voices.length}개를 나눠 씁니다.`
       : '이 브라우저에는 한국어 음성이 1개뿐이라 높낮이·속도로 구분합니다. Edge에서 열면 음성이 더 많습니다.';
@@ -270,17 +272,17 @@
     return box;
   }
 
-  // 대본을 서버(Claude)로 보내 배역마다 성격을 읽고 목소리를 추천받아 바로 적용
+  // 대본을 서버(Claude)로 보내 배역마다 성격을 읽고 목소리를 추천받아 바로 적용 (대본 분석 때 자동으로 불림)
   async function analyzeCast() {
-    const btn = $('btn-ai-cast');
     const names = K.listCharacters(state.items).map((c) => c.name);
     if (!names.length) return;
-    btn.disabled = true;
-    setAiStatus('🤖 대본을 읽고 배역을 분석하는 중… (긴 대본은 30초~1분)');
+    const script = state.text;
+    setAiStatus('🤖 AI가 대본을 읽고 배역에 맞는 목소리를 고르는 중… (긴 대본은 30초~1분, 그동안은 자동으로 나눈 목소리로 들을 수 있어요)');
     try {
-      const res = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: state.text, characters: names, lang: scriptLang() }) });
+      const res = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script, characters: names, lang: scriptLang() }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `분석 실패 (${res.status})`);
+      if (state.text !== script) return;   // 기다리는 사이 다른 대본을 분석했으면 버림
       const cast = { ...state.cast };
       body.characters.forEach((c) => {
         const { name: sent, voice, rate, ...profile } = c;
@@ -292,9 +294,8 @@
       renderCast();
       setAiStatus(`✅ ${body.characters.length}명의 배역을 분석해 목소리를 골랐어요. 🔊로 들어 보고 마음에 안 들면 바꾸세요.`);
     } catch (err) {
-      setAiStatus('⚠ ' + (err.message || 'AI 분석에 실패했습니다.'), true);
-    } finally {
-      btn.disabled = false;
+      if (state.text !== script) return;
+      setAiStatus(`⚠ ${err.message || 'AI 분석에 실패했습니다.'} 목소리는 자동으로 나눠 두었어요. 대본 탭에서 '대본 분석'을 다시 누르면 AI 분석을 다시 시도합니다.`, true);
     }
   }
 
@@ -303,14 +304,6 @@
     box.hidden = !text;
     box.textContent = text;
     box.classList.toggle('error', !!isError);
-  }
-
-  function autoAssignVoices() {
-    const others = K.listCharacters(state.items).map((c) => c.name).filter((n) => !state.cast[n].mine);
-    const assigned = distributeAllVoices(others, state.cast);
-    const cast = Object.fromEntries(Object.entries(state.cast).map(([n, c]) => [n, { ...c, ...(assigned[n] || {}) }]));
-    update({ cast });
-    renderCast();
   }
 
   function setCast(name, patch) {
@@ -1259,8 +1252,6 @@
     bindFilePicker();
     $('btn-parse').onclick = parseAndGo;
     $('btn-to-practice').onclick = goPractice;
-    $('btn-auto-voices').onclick = autoAssignVoices;
-    $('btn-ai-cast').onclick = analyzeCast;
     $('btn-insight').onclick = runInsight;
     $('btn-insight-png').onclick = () => insightSvg && IV.saveGraphImage(insightSvg).catch((err) => setInsightStatus('⚠ ' + err.message, true));
     $('btn-insight-copy').onclick = copyInsightText;

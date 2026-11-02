@@ -4,3 +4,5 @@ __pycache__/
 Thumbs.db
 *.log
 .claude/
+# 로컬 키 파일 (Langfuse·Anthropic 키). 견본은 .env.example
+.env

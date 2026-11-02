@@ -10,6 +10,7 @@ const { createTtsHandler, createGoogleSynthesizer, createDailyBudget } = require
 const { createAnalyzeHandler, createClaudeClient, analyzeWithClaude } = require('./analyze.js');
 const { sceneArtWithClaude, parseSceneArtRequest } = require('./sceneart.js');
 const { insightWithClaude } = require('./insight.js');
+const { traceClaude, createLangfuseTracing } = require('./langfuse.js');
 const { createLibraryHandler } = require('./library.js');
 
 const ROOT = path.resolve(process.env.STATIC_ROOT || __dirname);
@@ -315,8 +316,11 @@ function createServer(opts) {
     readBody, sendJson, send, clientIp, createRateLimiter,
   });
   const claude = opts && 'claude' in opts ? opts.claude : createClaudeClient();
+  // Langfuse 키가 있으면 Claude 호출을 용도별 이름(claude-analyze 등)으로 기록 (없으면 claude 그대로)
+  const langfuse = opts && 'langfuse' in opts ? opts.langfuse : createLangfuseTracing();
+  const traced = (name) => traceClaude(claude, name, langfuse);
   const handleAnalyze = createAnalyzeHandler({
-    analyze: opts && 'analyze' in opts ? opts.analyze : claude && ((args) => analyzeWithClaude(args, claude)),
+    analyze: opts && 'analyze' in opts ? opts.analyze : claude && ((args) => analyzeWithClaude(args, traced('analyze'))),
     daily: opts && opts.analyzeDaily,
     maxInFlight: opts && opts.analyzeMaxInFlight,
     readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
@@ -324,13 +328,13 @@ function createServer(opts) {
   // 초목표·관계도 분석: 배역 분석과 같은 한도 규칙을 따로 적용 (서로의 한도를 깎지 않음)
   const handleLibrary = createLibraryHandler({ fetchSource: opts && opts.fetchSource, sendJson, clientIp, createRateLimiter });
   const handleInsight = createAnalyzeHandler({
-    analyze: opts && 'insight' in opts ? opts.insight : claude && ((args) => insightWithClaude(args, claude)),
+    analyze: opts && 'insight' in opts ? opts.insight : claude && ((args) => insightWithClaude(args, traced('insight'))),
     toBody: (insight) => insight,
     readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
   });
   // 장면 그림 설명: 'AI 장면 이미지'를 켰을 때 대본마다 한 번 (한도는 따로)
   const handleSceneArt = createAnalyzeHandler({
-    analyze: opts && 'sceneArt' in opts ? opts.sceneArt : claude && ((args) => sceneArtWithClaude(args, claude)),
+    analyze: opts && 'sceneArt' in opts ? opts.sceneArt : claude && ((args) => sceneArtWithClaude(args, traced('scene-art'))),
     toBody: (scenes) => ({ scenes }),
     parse: parseSceneArtRequest,
     readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,

@@ -84,6 +84,12 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .cast tr.is-mine .voice-box { opacity: 0.45; }
 .options { background: var(--stage-2); border: 1px solid var(--line); border-radius: var(--radius-lg); margin-top: 20px; padding: 16px 20px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .options legend { color: var(--paper); font-weight: 800; padding: 0 6px; }
+/* 연습 옵션 접기/펴기 (기본은 접힘) */
+.options-panel { margin-top: 20px; }
+.options-panel > summary { cursor: pointer; color: var(--paper); font-weight: 800; width: fit-content; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--stage-2); }
+.options-panel > summary small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+.options-panel[open] > summary .when-closed, .options-panel:not([open]) > summary .when-open { display: none; }
+.options-panel > .options { margin-top: 10px; }
 .options label { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .options small { color: var(--muted); }
 .option-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
