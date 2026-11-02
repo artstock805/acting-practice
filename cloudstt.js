@@ -155,5 +155,10 @@
     return (await offline.startRendering()).getChannelData(0);
   }
 
-  root.CloudSTT = { checkAvailable, unlock, listen };
+  // 이미 있는 녹음(PC 녹음 등)을 서버에서 글자로 바꿈 → { text, segments }
+  function transcribeRecording(blob, { hint = '', lang = 'ko-KR' } = {}) {
+    return transcribe(blob, undefined, {}, hint, lang);
+  }
+
+  root.CloudSTT = { checkAvailable, unlock, listen, transcribeRecording };
 })(window);

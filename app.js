@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v56';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v57';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -35,7 +35,7 @@
   // 서버(Cloud Run)가 있으면 휴대폰도 녹음 파일을 서버로 보내 채점 → 녹음과 채점을 둘 다 할 수 있음
   let cloudReady = false;
   const NOTE_PHONE_LOCAL = '📱 휴대폰에서는 음성 채점과 녹음을 동시에 할 수 없어, 채점을 우선하고 녹음은 하지 않습니다. 녹음해서 다시 들으려면 PC에서 연습하세요.';
-  const NOTE_PHONE_CLOUD = '📱 휴대폰에서는 녹음을 서버로 보내 채점합니다. 말을 마치면 1~2초 뒤에 결과가 나와요. 녹음을 끄면 휴대폰 내장 인식으로 바로 채점합니다.';
+  const NOTE_PHONE_CLOUD = '📱 휴대폰에서는 내 대사를 서버로 보내 채점합니다(“네.” 같은 짧은 대사도 알아들어요). 말을 마치면 1~3초 뒤에 결과가 나와요. 녹음을 끄면 다시 듣기용 녹음만 남기지 않습니다.';
 
   let state = loadState() || { text: '', items: [], cast: {}, opts: { mode: 'hint', threshold: 70, keepGoing: DEFAULT_KEEP_GOING, rate: 1, directions: false, aiImage: false, record: true, range: 'all', loop: false, avatar: 'off' }, index: 0, results: {}, lineStats: {} };
   let runToken = 0;
@@ -616,8 +616,21 @@
     const endedBy = listener.endReason;
     listener = null;
     if (token !== runToken) { R.discard(); return 'wait'; }
-    if (recording) saveTake(state.index, await R.stop());
+    const take = recording ? await R.stop() : null;
+    if (take) saveTake(state.index, take);
+    // 내장 인식이 아무것도 못 알아들었는데(짧은 대사에서 잦음) 녹음이 있으면 서버에 한 번 더 맡김
+    if (!spoken.trim() && take && cloudReady) {
+      spoken = await transcribeTake(item, take);
+      if (token !== runToken) return 'wait';
+    }
     return judgeLine(item, spoken, threshold, diagnosis(trace), endedBy);
+  }
+
+  async function transcribeTake(item, take) {
+    setMic('⏳ 채점 중…', true);
+    try {
+      return pickFromSegments(speechOf(item), await C.transcribeRecording(take, { hint: speechOf(item), lang: lineLocale(item) }));
+    } catch (_) { return ''; }   // 서버도 안 되면 내장 인식 결과(빈 말)로 채점
   }
 
   // 휴대폰 + 서버: 녹음 → 말이 끝나면 자동 정지 → 서버가 글자로 바꿔 줌 → 채점. 녹음은 다시 듣기에 그대로 씀
@@ -646,7 +659,7 @@
     }
     listener = null;
     if (token !== runToken) return 'wait';
-    if (result.blob) saveTake(state.index, result.blob);
+    if (result.blob && state.opts.record !== false) saveTake(state.index, result.blob);   // 녹음을 꺼 두면 채점에만 쓰고 남기지 않음
     const endedBy = { 'speech-end': 'pause', max: 'max', timed: 'max' }[diag.outcome] || '';
     return judgeLine(item, pickFromSegments(speechOf(item), result), threshold, cloudDiagnosis(diag), endedBy);
   }
@@ -670,8 +683,9 @@
     return `\n[진단] ${PHONE_OS} 서버채점 · 오디오 ${d.ctx || '?'} · 최대 ${d.peak.toFixed(4)} / 기준 ${d.threshold.toFixed(4)} · ${d.outcome || '?'} · ${upload}`;
   }
 
+  // 휴대폰 내장 인식은 '네.' 같은 한 글자 대사를 자주 놓쳐서, 서버가 있으면 녹음 설정과 상관없이 서버로 채점
   function useCloudScoring() {
-    return RECORD_BLOCKS_SCORING && cloudReady && state.opts.record !== false && R.canRecord;
+    return RECORD_BLOCKS_SCORING && cloudReady && R.canRecord;
   }
 
   async function judgeLine(item, spoken, threshold, failDetail, endedBy = '') {
@@ -687,7 +701,7 @@
       await sleep(KEEP_GOING_PAUSE_MS);
       return 'next';
     }
-    setMic(spoken ? `조금 달라요. 다시 말하거나 통과 처리할 수 있어요.${endNote(endedBy)}` : '소리가 들리지 않았어요. 마이크를 확인해 주세요.' + failDetail);
+    setMic(spoken ? `조금 달라요. 다시 말하거나 통과 처리할 수 있어요.${endNote(endedBy)}` : '알아들은 말이 없어요. 대사를 또렷하게 다시 말하거나, 마이크를 확인해 주세요.' + failDetail);
     revealLine(item);
     setRetryButtons(true);
     return 'wait';
