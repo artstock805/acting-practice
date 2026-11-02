@@ -313,6 +313,11 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
 .loop-pick { display: flex; align-items: center; gap: 4px; font-size: 0.9rem; white-space: nowrap; }
 .range-bar .ghost { padding: 6px 12px; white-space: nowrap; }
 body.practice-mode .range-bar { flex: none; }
+/* 범위·반복·기록 접기/펴기 (기본은 접힘) */
+.practice-panel { margin-top: 10px; }
+.practice-panel > summary { cursor: pointer; color: var(--muted); font-size: 0.9rem; width: fit-content; padding: 4px 0; }
+.practice-panel > .range-bar { margin-top: 6px; }
+body.practice-mode .practice-panel { flex: none; }
 .stats-dialog { width: min(560px, calc(100% - 32px)); text-align: left; }
 .stats-body h2 { text-align: center; }
 .stats-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }

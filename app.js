@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v54';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v56';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -918,7 +918,7 @@
     ]);
   }
 
-  function revealLine(item) { $('line-text').textContent = shownText(item); $('line-text').classList.remove('is-hidden'); }
+  function revealLine(item) { $('line-text').textContent = shownText(item); $('line-text').classList.remove('is-hidden'); $('btn-reveal').hidden = true; }
 
   function showDiff(item, spoken, score) {
     const box = $('line-diff');
@@ -1173,7 +1173,15 @@
     $('mic-status').classList.toggle('listening', !!listening);
     setRowPhase(listening ? 'listening' : '');
   }
-  function setRetryButtons(show) { ['btn-retry', 'btn-reveal', 'btn-pass'].forEach((id) => { $(id).hidden = !show; }); }
+  function setRetryButtons(show) {
+    ['btn-retry', 'btn-pass'].forEach((id) => { $(id).hidden = !show; });
+    $('btn-reveal').hidden = !show || !lineIsCovered();   // 대사가 이미 다 보이면 눌러도 바뀌는 게 없어 숨김
+  }
+  // 카드의 내 대사가 아직 힌트·숨기기로 가려져 있는지 (점수가 낮으면 원문과 틀린 곳을 이미 펼쳐 보여 줌)
+  function lineIsCovered() {
+    const item = state.items[state.index];
+    return !!item && ($('line-text').classList.contains('is-hidden') || $('line-text').textContent !== shownText(item));
+  }
 
   function el(tag, props) {
     const node = document.createElement(tag);
