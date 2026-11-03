@@ -3,6 +3,7 @@
   'use strict';
 
   const canRecord = !!(root.MediaRecorder && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  const CHUNK_MS = 250;
   let stream = null;
   let recorder = null;
   let chunks = [];
@@ -21,7 +22,12 @@
     chunks = [];
     recorder = new MediaRecorder(s);
     recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-    recorder.start();
+    recorder.start(CHUNK_MS);   // 조각으로 받아 두면 녹음 중에도 지금까지의 소리를 꺼내 소리 크기를 잴 수 있음
+  }
+
+  // 녹음 중 지금까지 녹음된 소리 (휴대폰에서 실시간 소리 크기가 0으로만 읽힐 때, 이걸 풀어 소리 크기를 잼)
+  function snapshot() {
+    return recorder && chunks.length ? new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }) : null;
   }
 
   // 녹음을 끝내고 Blob 반환 (녹음 중이 아니면 null)
@@ -72,5 +78,5 @@
   // 녹음용으로 연 마이크가 아직 열려 있는지 (진단 표시용)
   function isMicOpen() { return !!(stream && stream.getAudioTracks().some((t) => t.readyState === 'live')); }
 
-  root.Recorder = { canRecord, start, stop, discard, release, play, stopPlaying, getStream, isMicOpen };
+  root.Recorder = { canRecord, start, stop, discard, release, play, stopPlaying, getStream, isMicOpen, snapshot };
 })(window);

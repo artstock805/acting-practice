@@ -563,6 +563,15 @@
     return Math.round(Math.min(takeMsForLine(text) - TAKE_BASE_MS, chars * TYPICAL_SPEAK_PER_CHAR_MS));
   }
 
+  // 소리 크기를 못 잴 때 녹음을 끝낼 시간(ms): 보통 속도로 말하는 시간의 1.25배 + 1초 (짧은 대사도 최소 2초)
+  // 휴대폰에서 소리 크기가 0으로만 읽히면 말이 끝난 걸 몰라 8초씩 기다렸음
+  const BLIND_PACE = 1.25;
+  const BLIND_EXTRA_MS = 1000;
+  const BLIND_MIN_MS = 2000;
+  function blindTakeMsForLine(text) {
+    return Math.round(Math.min(takeMsForLine(text), Math.max(BLIND_MIN_MS, typicalSpeakMsForLine(text) * BLIND_PACE + BLIND_EXTRA_MS)));
+  }
+
   function firstLetterHint(text) {
     return String(text || '').split(/\s+/).map((w) => w.replace(/^([^\p{L}\p{N}]*[\p{L}\p{N}])[\s\S]*$/u, '$1…')).join(' ');
   }
@@ -597,7 +606,7 @@
   function detectMood(text) { return findByWords(MOODS, text); }
   function detectEmotion(text) { return findByWords(EMOTIONS, text); }
 
-  const api = { parseScript, detectLanguage, lineLanguage, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, takeMsForLine, minSpeakMsForLine, typicalSpeakMsForLine, alignProgress, keepListening, firstLetterHint, detectMood, detectEmotion, normalize };
+  const api = { parseScript, detectLanguage, lineLanguage, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, takeMsForLine, minSpeakMsForLine, typicalSpeakMsForLine, blindTakeMsForLine, alignProgress, keepListening, firstLetterHint, detectMood, detectEmotion, normalize };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ScriptKit = api;
 })(this);

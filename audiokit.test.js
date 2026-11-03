@@ -32,6 +32,18 @@ test('silence detector ends quickly once the line could be finished at a normal 
   assert.strictEqual(d.update(0.01, 2900), 'speech-end');   // 다 말할 시간이 지났으면 0.8초 조용하면 바로 끝
 });
 
+test('without any measurable sound, the take ends at blindMs instead of the long no-speech wait', () => {
+  const d = A.createSilenceDetector({ noSpeechMs: 8000, blindMs: 2000, maxMs: 20000 });
+  assert.strictEqual(d.update(0, 0), null);
+  assert.strictEqual(d.update(0, 1999), null);
+  assert.strictEqual(d.update(0, 2000), 'no-signal');
+  // 소리가 조금이라도 재지면(조용한 방) 예전처럼 noSpeechMs까지 기다림
+  const quiet = A.createSilenceDetector({ threshold: 0.1, noSpeechMs: 8000, blindMs: 2000 });
+  assert.strictEqual(quiet.update(0.01, 0), null);
+  assert.strictEqual(quiet.update(0.01, 2500), null);
+  assert.strictEqual(quiet.update(0.01, 8000), 'no-speech');
+});
+
 test('silence detector gives up when nobody speaks', () => {
   const d = A.createSilenceDetector({ threshold: 0.1, noSpeechMs: 3000 });
   assert.strictEqual(d.update(0.05, 0), null);

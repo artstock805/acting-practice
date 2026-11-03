@@ -14,6 +14,7 @@
     // 보통 속도로 대사를 다 말했을 시간(quickAfterMs)이 지나면 짧게만 조용해도 끝 → 말을 마치면 바로 채점 (휴대폰에서 1.4~4.5초씩 기다렸음)
     quickAfterMs: Infinity,
     quickSilenceMs: 800,
+    blindMs: 0,          // 소리 크기를 못 잴 때 끝낼 시간 (0이면 noSpeechMs). 부르는 쪽이 blindTakeMsForLine으로 넘김
   };
 
   // 실제 마이크는 조용한 방에서도 이보다 큰 잡음이 잡힘. 내내 이보다 작으면 측정이 안 되는 상태(오디오 멈춤 등)
@@ -44,6 +45,8 @@
         if (level >= threshold) { spoke = true; heardAt = now; }
         const silentResult = peak < NO_SIGNAL_PEAK ? 'no-signal' : 'no-speech';
         if (elapsed >= o.maxMs) return spoke ? 'max' : silentResult;
+        // 소리 크기를 전혀 못 재면(내내 0) 말이 끝난 걸 알 수 없음 → 대사 길이로 정한 blindMs에서 끝냄 (8초씩 기다렸음)
+        if (!spoke && peak < NO_SIGNAL_PEAK && o.blindMs) return elapsed >= o.blindMs ? 'no-signal' : null;
         if (!spoke) return elapsed >= o.noSpeechMs ? silentResult : null;
         const needSilence = elapsed >= o.quickAfterMs ? Math.min(o.silenceMs, o.quickSilenceMs) : o.silenceMs;
         return now - heardAt >= needSilence && elapsed >= o.minMs ? 'speech-end' : null;

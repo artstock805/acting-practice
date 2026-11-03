@@ -112,6 +112,13 @@ test('typicalSpeakMsForLine is how long the line takes at a normal pace, after t
   assert.ok(K.typicalSpeakMsForLine(huge) < K.takeMsForLine(huge));
 });
 
+test('blindTakeMsForLine: when loudness cannot be measured, stop soon after the line could be said', () => {
+  const long = '3년 만에 갑자기 나타나서 커피 한 잔 시켜 놓고 두 시간째야. 할 말 있으면 해.';
+  assert.ok(K.blindTakeMsForLine('네?') <= 2500, `short ${K.blindTakeMsForLine('네?')}`);
+  assert.ok(K.blindTakeMsForLine(long) > K.typicalSpeakMsForLine(long) && K.blindTakeMsForLine(long) <= K.typicalSpeakMsForLine(long) * 1.25 + 1000);
+  assert.ok(K.blindTakeMsForLine('가'.repeat(1000)) <= K.takeMsForLine('가'.repeat(1000)));
+});
+
 test('very short lines need the exact sound (no partial credit for 1~2 syllables)', () => {
   assert.strictEqual(K.similarity('응.', '음'), 0);
   assert.strictEqual(K.similarity('네.', '내'), 0);
