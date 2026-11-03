@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v65';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v66';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -590,7 +590,7 @@
     // 상대 대사(스피커 소리)의 끝부분이 마이크에 섞이지 않게 잠깐 쉬고 듣기 시작
     await sleep(POST_SPEECH_GAP_MS);
     if (token !== runToken) return 'wait';
-    if (useCloudScoring(item)) return listenViaServer(item, token, threshold);
+    if (useCloudScoring()) return listenViaServer(item, token, threshold);
     // 휴대폰은 녹음용으로 열어 둔 마이크가 있으면 내장 인식에 무음만 들어감 → 내장 인식 전에 놓아 줌
     if (RECORD_BLOCKS_SCORING) R.release();
     const recording = await startRecording();
@@ -708,15 +708,11 @@
   }
 
   const flowMode = () => state.opts.flow !== false;
-  // 한두 글자 대사('네.' '응?'): 휴대폰 내장 인식이 자주 놓쳐서 서버(Chirp 3)로 채점
-  const SHORT_LINE_CHARS = 2;
-  const isShortLine = (item) => !!item && K.normalize(speechOf(item)).length <= SHORT_LINE_CHARS;
 
-  // 휴대폰 + 서버일 때 서버로 채점할지. 대화하듯 이어 하기에서는 긴 대사를 휴대폰 내장 인식으로 실시간 대조해,
-  // 대본과 맞는 순간 바로 다음 대사로 넘어감 (서버는 다 말한 뒤에야 결과가 나와 대사 사이가 길었음). 짧은 대사만 서버로
-  function useCloudScoring(item = state.items[state.index]) {
-    if (!(RECORD_BLOCKS_SCORING && cloudReady && R.canRecord)) return false;
-    return !flowMode() || isShortLine(item);
+  // 휴대폰 + 서버일 때는 모든 대사를 서버로 채점. 긴 대사만 내장 인식으로 돌리면 대사마다 마이크를 닫았다 다시 열어
+  // 휴대폰이 마이크 허용 창을 매번 띄웠음 → 녹음 한 가지로만 들어서 마이크를 연습 내내 열어 둠
+  function useCloudScoring() {
+    return RECORD_BLOCKS_SCORING && cloudReady && R.canRecord;
   }
 
   async function judgeLine(item, spoken, threshold, failDetail, endedBy = '') {
