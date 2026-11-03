@@ -40,7 +40,8 @@
   // lang: 'ko-KR' | 'en-US' (대본 언어) · maxMs: 이 대사를 녹음할 최대 시간 (긴 대사가 중간에 끊기지 않게)
   // finish(): 소리 크기를 못 재 정해진 시간만큼 녹음할 때, 다 말했으면 기다리지 않고 바로 채점
   // minMs: 이보다 일찍 조용해지면 숨 고르기로 보고 끝내지 않음 (긴 대사가 중간에 끊기지 않게)
-  function listen({ onPhase, hint = '', silenceMs, maxMs, minMs, lang = 'ko-KR' } = {}) {
+  // quickAfterMs: 보통 속도로 다 말했을 시간. 이 뒤로는 짧게만 조용해도 바로 채점
+  function listen({ onPhase, hint = '', silenceMs, maxMs, minMs, quickAfterMs, lang = 'ko-KR' } = {}) {
     let stopped = false;
     let timer = null;
     let source = null;
@@ -58,12 +59,14 @@
 
     (async () => {
       await R.start();
+      const startedAt = Date.now();
       if (stopped) { R.discard(); return; }
       const running = await ensureRunning(ctx);
       if (stopped) { R.discard(); return; }
       let outcome = running ? await detectSpeechEnd() : await timedTake();
       // 녹음 중에 휴대폰이 오디오를 멈춰 다시 켜지지 않으면, 정해진 시간 녹음(✔ 다 말했어요)으로 이어 감
       if (outcome === 'paused' && !stopped) { clearInterval(timer); outcome = await timedTake(); }
+      diag.takeMs = Date.now() - startedAt;   // 녹음 길이 (말을 마친 뒤 기다린 시간 포함) — 서버 로그로 어디서 느린지 봄
       cleanup();
       if (stopped) return;
       // 소리 크기를 못 재는 경우(no-signal)는 말이 없었다고 단정하지 않고 서버에 맡김
@@ -86,7 +89,8 @@
       source = ctx.createMediaStreamSource(R.getStream());
       source.connect(analyser);
       const frame = new Float32Array(analyser.fftSize);
-      const detector = A.createSilenceDetector({ ...(silenceMs ? { silenceMs } : {}), ...(maxMs ? { maxMs } : {}), ...(minMs ? { minMs } : {}) });
+      const detector = A.createSilenceDetector({ ...(silenceMs ? { silenceMs } : {}), ...(maxMs ? { maxMs } : {}), ...(minMs ? { minMs } : {}),
+        ...(quickAfterMs ? { quickAfterMs } : {}) });
       let pausedSince = null;
       const outcome = await new Promise((done) => {
         finishLoop = done;
@@ -143,11 +147,14 @@
   }
 
   async function transcribe(blob, signal, diag, hint, lang) {
+    const prepStart = Date.now();
     const samples = await toMono16k(blob);
     if (samples.length < TARGET_RATE / 10) return { text: '', segments: [] };  // 0.1초도 안 되면 말이 없던 것
     const wav = A.encodeWav(samples, TARGET_RATE);
     diag.uploadKB = Math.round(wav.byteLength / 1024);
     const headers = { 'Content-Type': 'audio/wav', 'X-Speech-Lang': lang };
+    // 단계별 시간(녹음 길이·끝 판단 방식·파일 변환 시간)을 서버 로그에 남김: 휴대폰에서 어디서 느린지 확인용
+    if (diag.outcome) headers['X-Take-Info'] = `outcome=${diag.outcome};ctx=${diag.ctx};take=${diag.takeMs};prep=${Date.now() - prepStart}`;
     // 글자 단위로 자름: 문자열 slice는 이모지(서로게이트 쌍)를 반으로 잘라 encodeURIComponent가 실패할 수 있음
     if (hint) headers['X-Line-Hint'] = encodeURIComponent(Array.from(hint).slice(0, MAX_HINT_CHARS).join(''));
     const res = await fetch('api/stt', { method: 'POST', headers, body: wav, signal });
