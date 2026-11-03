@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v63';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v64';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -370,6 +370,7 @@
     $('opt-rate').value = o.rate;
     $('opt-directions').checked = o.directions;
     $('opt-ai-image').checked = o.aiImage;
+    $('opt-flow').checked = o.flow !== false;
     $('opt-avatar').value = avatarStyle();
     const recordLocked = RECORD_BLOCKS_SCORING && !cloudReady;
     $('opt-record').checked = o.record !== false && !recordLocked;
@@ -379,7 +380,7 @@
     const sync = () => {
       const avatarChanged = $('opt-avatar').value !== avatarStyle();
       update({ opts: { ...state.opts, mode: $('opt-mode').value, threshold: +$('opt-threshold').value, keepGoing: +$('opt-keep-going').value, rate: +$('opt-rate').value,
-        directions: $('opt-directions').checked, aiImage: $('opt-ai-image').checked, avatar: $('opt-avatar').value,
+        directions: $('opt-directions').checked, aiImage: $('opt-ai-image').checked, avatar: $('opt-avatar').value, flow: $('opt-flow').checked,
         record: recordLocked ? o.record : $('opt-record').checked } });  // 휴대폰에서 강제로 끈 건 저장하지 않음
       if (avatarChanged) renderCast();
       $('transcript').dataset.mode = state.opts.mode;
@@ -388,7 +389,7 @@
       $('opt-rate-val').textContent = state.opts.rate.toFixed(1) + '×';
       if (!$('opt-record').checked) R.release();  // 녹음을 끄면 열어 둔 마이크도 바로 놓아 줌
     };
-    ['opt-mode', 'opt-threshold', 'opt-keep-going', 'opt-rate', 'opt-directions', 'opt-ai-image', 'opt-avatar', 'opt-record'].forEach((id) => { $(id).oninput = sync; $(id).onchange = sync; });
+    ['opt-mode', 'opt-threshold', 'opt-keep-going', 'opt-rate', 'opt-directions', 'opt-ai-image', 'opt-avatar', 'opt-record', 'opt-flow'].forEach((id) => { $(id).oninput = sync; $(id).onchange = sync; });
     sync();
     bindOptionHelp();
   }
@@ -507,6 +508,7 @@
   async function play() {
     const token = ++runToken;
     waiting = false;
+    finishWhenScored = false;   // 다시 시작하면 '점수 모으는 중' 화면을 기다리지 않음
     setRetryButtons(false);
     let plan = practicePlan();
     const start = PP.startIndex(plan, state.index);
@@ -652,6 +654,20 @@
       },
     });
     const diag = listener.diag;
+    // 대화하듯 이어 하기: 녹음이 끝나면 채점을 기다리지 않고 바로 다음 대사로. 점수는 뒤에서 매겨 목록·마지막에 모아 보여 줌
+    if (state.opts.flow !== false) {
+      const blob = await listener.recorded;
+      if (token !== runToken) return 'wait';
+      if (blob) {
+        const scoring = listener.promise;
+        listener = null;   // 다음 대사로 옮겨도 이 채점(업로드)은 멈추지 않게
+        if (state.opts.record !== false) saveTake(state.index, blob);
+        scoreLater(state.index, item, scoring, threshold);
+        setMic('✔ 들었어요');
+        return 'next';
+      }
+      // 말소리가 없었으면 아래에서 기존처럼 멈추고 다시 말하기를 기다림
+    }
     let result;
     try { result = await listener.promise; } catch (err) {
       listener = null;
@@ -809,6 +825,30 @@
 
   function recordResult(index, score) { update({ results: { ...state.results, [index]: score } }); refreshTranscriptRow(index); }
 
+  // 뒤에서 채점하는 중인 대사(목록에 ⏳)와 채점에 실패한 대사(⚠). 다 끝나기 전에 연습이 끝나면 다 매긴 뒤 결과를 보여 줌
+  let scoringRows = new Set();
+  let scoringFailed = new Set();
+  let finishWhenScored = false;
+  function scoreLater(index, item, scoring, threshold) {
+    const script = state.text;
+    scoringRows = new Set(scoringRows).add(index);
+    scoringFailed = new Set([...scoringFailed].filter((i) => i !== index));
+    refreshTranscriptRow(index);
+    scoring.then((result) => {
+      if (state.text !== script) return;   // 그사이 대본을 바꿨으면 버림
+      const spoken = pickFromSegments(speechOf(item), result);
+      const score = K.similarity(speechOf(item), spoken);
+      noteScore(item, spoken, score, threshold, index);
+      recordResult(index, score);
+    }).catch(() => {
+      scoringFailed = new Set(scoringFailed).add(index);
+    }).finally(() => {
+      scoringRows = new Set([...scoringRows].filter((i) => i !== index));
+      refreshTranscriptRow(index);
+      if (finishWhenScored && !scoringRows.size) finish();
+    });
+  }
+
   // ---------- 연습 범위·기록 ----------
   const isMineName = (name) => !!(state.cast[name] && state.cast[name].mine);
   const weakIndexes = () => PP.weakLines(state.items, state.lineStats || {}, isMineName, state.opts.threshold / 100);
@@ -816,8 +856,8 @@
   const RANGE_TITLE_MAX = 18;
 
   // 채점 결과를 대사별 기록(약한 대사 판단)과 날짜별 연습 기록에 남김
-  function noteScore(item, spoken, score, threshold) {
-    update({ lineStats: PP.addScore(state.lineStats || {}, state.index, score) });
+  function noteScore(item, spoken, score, threshold, index = state.index) {
+    update({ lineStats: PP.addScore(state.lineStats || {}, index, score) });
     const missed = K.wordDiff(speechOf(item), spoken).filter((w) => !w.ok).map((w) => w.word);
     LOG.record({ score, passed: score >= threshold, missed });
     renderRangeOptions();
@@ -866,11 +906,20 @@
   }
 
   function finish() {
+    // 뒤에서 채점 중인 대사가 남았으면 다 매긴 뒤 한꺼번에 보여 줌
+    finishWhenScored = scoringRows.size > 0;
+    if (finishWhenScored) {
+      $('btn-play').textContent = '↺ 처음부터';
+      renderLineCard({ who: '🎬 끝', note: '', text: `점수를 모으는 중… (남은 대사 ${scoringRows.size}개)`, mine: false, hidden: false });
+      setMic('');
+      return;
+    }
     const scores = Object.values(state.results);
     const avg = scores.length ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) : 0;
     $('btn-play').textContent = '↺ 처음부터';
     const weak = weakIndexes().length;
-    const summary = scores.length ? `수고했어요! 내 대사 ${scores.length}개, 평균 정확도 ${avg}%` : '수고했어요!';
+    const failed = scoringFailed.size ? ` · 채점하지 못한 대사 ${scoringFailed.size}개(목록에 ⚠)` : '';
+    const summary = (scores.length ? `수고했어요! 내 대사 ${scores.length}개, 평균 정확도 ${avg}%` : '수고했어요!') + failed;
     renderLineCard({ who: '🎬 끝', note: '', text: summary + (weak ? ` · 약한 대사 ${weak}개는 '⚠ 약한 대사만'으로 다시 연습해 보세요` : ''), mine: false, hidden: false });
     setMic('');
   }
@@ -1136,7 +1185,9 @@
       li.append(play);
     }
     const score = state.results[index];
-    if (score !== undefined) {
+    if (scoringRows.has(index)) li.append(el('span', { className: 'tag', textContent: '⏳', title: '채점 중' }));
+    else if (scoringFailed.has(index)) li.append(el('span', { className: 'tag', textContent: '⚠', title: '채점하지 못했어요. 이 줄을 눌러 다시 해 보세요' }));
+    else if (score !== undefined) {
       const ok = score >= state.opts.threshold / 100;
       li.append(el('span', { className: 'tag', textContent: Math.round(score * 100) + '%', style: `color: var(--${ok ? 'ok' : 'bad'})` }));
     }

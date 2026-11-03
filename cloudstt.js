@@ -10,6 +10,7 @@
   const RESUME_WAIT_MS = 500;
   const TIMED_TAKE_MS = 7000;   // 소리 크기를 못 잴 때 녹음할 시간 (그 뒤 서버가 말이 있었는지 판단)
   const PAUSED_GIVE_UP_MS = 1500;   // 녹음 중 멈춘 오디오가 이만큼 안 켜지면 정해진 시간 녹음으로 바꿈
+  const NO_SIGNAL_RETRY_MS = 1000;  // 소리 크기가 이만큼 내내 0이면 오디오를 새로 만들어 다시 잼
   const MAX_HINT_CHARS = 300;   // 서버가 받는 힌트 길이 한도와 같게
   const Ctx = root.AudioContext || root.webkitAudioContext;
 
@@ -54,8 +55,18 @@
     let resolveFn;
     let rejectFn;
     const promise = new Promise((res, rej) => { resolveFn = res; rejectFn = rej; });
+    // recorded: 녹음이 끝나면 바로 녹음 파일로 풀림 (말이 없었거나 멈췄으면 null). 서버 채점(promise)은 그 뒤 따로
+    // → 대화하듯 이어 하기: 채점을 기다리지 않고 다음 대사로 넘어감
+    let recordedFn;
+    const recorded = new Promise((res) => { recordedFn = res; });
 
-    const cleanup = () => { clearInterval(timer); clearTimeout(timer); if (source) source.disconnect(); source = null; };
+    let freshCtx = null;   // 소리 크기가 0으로만 읽힐 때 새로 만든 오디오 (이 녹음이 끝나면 닫음)
+    const cleanup = () => {
+      clearInterval(timer); clearTimeout(timer);
+      if (source) source.disconnect();
+      source = null;
+      if (freshCtx && freshCtx !== ctx) freshCtx.close().catch(() => {});
+    };
 
     (async () => {
       await R.start();
@@ -70,12 +81,14 @@
       cleanup();
       if (stopped) return;
       // 소리 크기를 못 재는 경우(no-signal)는 말이 없었다고 단정하지 않고 서버에 맡김
-      if (outcome === 'no-speech') { R.discard(); return resolveFn(EMPTY); }
+      if (outcome === 'no-speech') { R.discard(); recordedFn(null); return resolveFn(EMPTY); }
       const blob = await R.stop();
-      if (!blob || stopped) return resolveFn(EMPTY);
+      if (!blob || stopped) { recordedFn(null); return resolveFn(EMPTY); }
+      recordedFn(blob);
       if (onPhase) onPhase('upload');
       resolveFn({ ...(await transcribe(blob, upload.signal, diag, hint, lang)), blob });
     })().catch((err) => {
+      recordedFn(null);
       cleanup();
       R.release();  // 실패하면 마이크를 놓아야 휴대폰 내장 인식 등 다음 시도가 소리를 받음
       if (stopped) return;
@@ -84,31 +97,44 @@
 
     // 소리 크기를 재며 말이 끝날 때까지 기다림
     async function detectSpeechEnd() {
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024;
-      source = ctx.createMediaStreamSource(R.getStream());
-      source.connect(analyser);
+      let actx = ctx;
+      let analyser = null;
+      const attach = () => {
+        if (source) source.disconnect();
+        analyser = actx.createAnalyser();
+        analyser.fftSize = 1024;
+        source = actx.createMediaStreamSource(R.getStream());
+        source.connect(analyser);
+      };
+      attach();
       const frame = new Float32Array(analyser.fftSize);
       const detector = A.createSilenceDetector({ ...(silenceMs ? { silenceMs } : {}), ...(maxMs ? { maxMs } : {}), ...(minMs ? { minMs } : {}),
         ...(quickAfterMs ? { quickAfterMs } : {}) });
+      const startedAt = Date.now();
       let pausedSince = null;
       const outcome = await new Promise((done) => {
         finishLoop = done;
         timer = setInterval(() => {
           // 휴대폰이 녹음 중에 오디오를 멈추면(suspended) 소리 크기가 0으로 읽혀 '말이 끝남'으로 잘못 판단했음
           // → 멈춘 동안은 재지 않고 다시 켜 봄. PAUSED_GIVE_UP_MS 동안 안 켜지면 'paused'
-          if (ctx.state !== 'running') {
-            if (pausedSince === null) { pausedSince = Date.now(); ctx.resume().catch(() => {}); }
+          if (actx.state !== 'running') {
+            if (pausedSince === null) { pausedSince = Date.now(); actx.resume().catch(() => {}); }
             if (Date.now() - pausedSince >= PAUSED_GIVE_UP_MS) done('paused');
             return;
           }
           pausedSince = null;
+          // 일부 안드로이드는 마이크를 열기 전에 만든 오디오로는 소리 크기가 내내 0으로 읽힘 (실측: 말해도 8초 꽉 채워 녹음)
+          // → 1초 동안 0이면 지금 열린 마이크에 맞춰 오디오를 새로 만들어 다시 잼 (한 번만)
+          if (!freshCtx && Date.now() - startedAt >= NO_SIGNAL_RETRY_MS && detector.peak < A.NO_SIGNAL_PEAK) {
+            try { freshCtx = new Ctx(); freshCtx.resume().catch(() => {}); actx = freshCtx; attach(); diag.rebuilt = true; } catch (_) { freshCtx = ctx; }
+            return;
+          }
           analyser.getFloatTimeDomainData(frame);
           const result = detector.update(A.rms(frame), Date.now());
           if (result) done(result);
         }, POLL_MS);
       });
-      Object.assign(diag, { ctx: ctx.state, peak: detector.peak, threshold: detector.threshold, outcome });
+      Object.assign(diag, { ctx: actx.state, rate: actx.sampleRate, peak: detector.peak, threshold: detector.threshold, outcome });
       return outcome;
     }
 
@@ -126,6 +152,7 @@
 
     return {
       promise,
+      recorded,
       diag,
       finish() { if (finishLoop) finishLoop('finished'); },
       stop() {
@@ -134,6 +161,7 @@
         upload.abort();
         cleanup();
         R.discard();
+        recordedFn(null);
         resolveFn(EMPTY);
       },
     };
@@ -154,7 +182,11 @@
     diag.uploadKB = Math.round(wav.byteLength / 1024);
     const headers = { 'Content-Type': 'audio/wav', 'X-Speech-Lang': lang };
     // 단계별 시간(녹음 길이·끝 판단 방식·파일 변환 시간)을 서버 로그에 남김: 휴대폰에서 어디서 느린지 확인용
-    if (diag.outcome) headers['X-Take-Info'] = `outcome=${diag.outcome};ctx=${diag.ctx};take=${diag.takeMs};prep=${Date.now() - prepStart}`;
+    if (diag.outcome) {
+      const track = R.getStream() && R.getStream().getAudioTracks()[0];
+      const mic = track ? (track.muted ? 'muted' : track.readyState) : 'none';
+      headers['X-Take-Info'] = `outcome=${diag.outcome};ctx=${diag.ctx};take=${diag.takeMs};prep=${Date.now() - prepStart};rebuilt=${diag.rebuilt ? 1 : 0};mic=${mic};rate=${diag.rate || ''};peak=${(diag.peak || 0).toFixed(4)}`;
+    }
     // 글자 단위로 자름: 문자열 slice는 이모지(서로게이트 쌍)를 반으로 잘라 encodeURIComponent가 실패할 수 있음
     if (hint) headers['X-Line-Hint'] = encodeURIComponent(Array.from(hint).slice(0, MAX_HINT_CHARS).join(''));
     const res = await fetch('api/stt', { method: 'POST', headers, body: wav, signal });

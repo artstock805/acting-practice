@@ -87,7 +87,7 @@
     return buffer;
   }
 
-  const api = { DEFAULTS, createSilenceDetector, rms, encodeWav };
+  const api = { DEFAULTS, NO_SIGNAL_PEAK, createSilenceDetector, rms, encodeWav };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AudioKit = api;
 })(this);
