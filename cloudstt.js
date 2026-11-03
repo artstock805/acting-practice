@@ -44,7 +44,7 @@
   // minMs: 이보다 일찍 조용해지면 숨 고르기로 보고 끝내지 않음 (긴 대사가 중간에 끊기지 않게)
   // quickAfterMs: 보통 속도로 다 말했을 시간. 이 뒤로는 짧게만 조용해도 바로 채점
   // blindMs: 소리 크기를 끝내 못 잴 때 녹음을 끝낼 시간 (대사 길이로 정함)
-  function listen({ onPhase, hint = '', silenceMs, maxMs, minMs, quickAfterMs, blindMs, lang = 'ko-KR' } = {}) {
+  function listen({ onPhase, hint = '', silenceMs, maxMs, minMs, quickAfterMs, quickSilenceMs, blindMs, lang = 'ko-KR' } = {}) {
     let stopped = false;
     let timer = null;
     let source = null;
@@ -104,7 +104,7 @@
       mute.connect(ctx.destination);
       const frame = new Float32Array(analyser.fftSize);
       const detector = A.createSilenceDetector({ ...(silenceMs ? { silenceMs } : {}), ...(maxMs ? { maxMs } : {}), ...(minMs ? { minMs } : {}),
-        ...(quickAfterMs ? { quickAfterMs } : {}), ...(blindMs ? { blindMs } : {}) });
+        ...(quickAfterMs ? { quickAfterMs } : {}), ...(quickSilenceMs ? { quickSilenceMs } : {}), ...(blindMs ? { blindMs } : {}) });
       const startedAt = Date.now();
       let pausedSince = null;
       let fromRecording = false;   // 실시간 소리 크기가 0이라 녹음 조각을 풀어 재는 중
