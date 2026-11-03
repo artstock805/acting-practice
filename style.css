@@ -183,7 +183,7 @@ body.practice-mode main { flex: 1; min-height: 0; width: 100%; display: flex; fl
 body.practice-mode #view-practice.active { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 body.practice-mode .stage { flex: none; max-height: 26vh; }
 body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: none; margin-top: 12px; padding-right: 4px; overscroll-behavior: contain;
-  border-top: 1px solid var(--line); }
+  border-top: 1px solid var(--line); color: #c9cfd9; font-size: 1rem; }   /* 연습 중에도 대본 목록을 읽을 수 있게 흐린 글자를 밝게 */
 
 .install { margin-left: auto; padding: 6px 14px; font-size: 0.9rem; }
 .install + .install { margin-left: 0; }
@@ -252,8 +252,23 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
   body.practice-mode .stage-overlay { padding: 10px 14px 24px; }   /* 아래 대사 카드가 무대를 18px 덮으므로 그만큼 띄움 */
   body.practice-mode .stage-scene { font-size: 1.05rem; }
   body.practice-mode .stage-direction { -webkit-line-clamp: 1; margin-top: 2px; }   /* 낮은 무대: 한 줄만 */
-  body.practice-mode .line-card { min-height: 0; flex: none; }   /* 화면 높이에 눌려 글자가 카드 밖으로 넘치지 않게 */
-  body.practice-mode .line-text { max-height: 24vh; overflow-y: auto; }   /* 아주 긴 대사는 카드 안에서만 스크롤 */
+  body.practice-mode .line-card { min-height: 0; flex: none; padding: 8px 12px 4px; }   /* 화면 높이에 눌려 글자가 카드 밖으로 넘치지 않게 */
+  /* 가운데 지금 대사는 조금 작게 → 아래 대본 목록이 더 많이 보이게. 아주 긴 대사는 카드 안에서만 스크롤 */
+  body.practice-mode .line-text { font-size: 1.2rem; line-height: 1.5; margin-top: 4px; max-height: 15vh; overflow-y: auto; }
+  body.practice-mode .mic { font-size: 0.85rem; }
+  /* 연습 중 휴대폰: 제목 줄을 숨기고 무대를 낮추고 조작부를 한 줄로 → 아래 대본 목록 자리를 넓힘 */
+  body.practice-mode .top h1, body.practice-mode .top .install { display: none; }
+  body.practice-mode .stage { height: clamp(76px, 11vh, 100px); }
+  body.practice-mode .stage-overlay { padding: 8px 14px 10px; justify-content: flex-start; }
+  body.practice-mode .stage-count { margin-bottom: 4px; }   /* 낮은 무대에서 장면 이름이 대사 번호 밑에 깔리지 않게 */
+  body.practice-mode .controls #btn-play { flex: 1 1 auto; }
+  body.practice-mode .controls .spacer { display: none; }
+  body.practice-mode .controls #btn-replay-scene { flex: none; width: 48px; height: 48px; padding: 0; }
+  body.practice-mode .controls #btn-replay-scene .btn-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  body.practice-mode main { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+  /* 다시 말하기·통과 같은 버튼이 나오면 조작부가 두 줄이 되므로 그만큼 더 비움 */
+  body.practice-mode:has(#controls button:not(#btn-prev, #btn-play, #btn-next, #btn-replay-scene):not([hidden])) main {
+    padding-bottom: calc(128px + env(safe-area-inset-bottom)); }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 .transcript li .take { float: right; margin-left: 8px; background: none; border: 0; cursor: pointer; padding: 0 4px; font-size: 1rem; }

@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v64';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v68';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -591,6 +591,8 @@
     await sleep(POST_SPEECH_GAP_MS);
     if (token !== runToken) return 'wait';
     if (useCloudScoring()) return listenViaServer(item, token, threshold);
+    // 휴대폰은 녹음용으로 열어 둔 마이크가 있으면 내장 인식에 무음만 들어감 → 내장 인식 전에 놓아 줌
+    if (RECORD_BLOCKS_SCORING) R.release();
     const recording = await startRecording();
     if (token !== runToken) { R.discard(); return 'wait'; }
     setMic((recording ? '⏺ 녹음 중 · ' : '') + '듣고 있어요… 대사를 말해 주세요.', true);
@@ -636,6 +638,9 @@
     } catch (_) { return ''; }   // 서버도 안 되면 내장 인식 결과(빈 말)로 채점
   }
 
+  const ACTING_PACE = 1.5;
+  const QUICK_END_SILENCE_MS = 1200;
+
   // 휴대폰 + 서버: 녹음 → 말이 끝나면 자동 정지 → 서버가 글자로 바꿔 줌 → 채점. 녹음은 다시 듣기에 그대로 씀
   async function listenViaServer(item, token, threshold) {
     setMic('⏺ 녹음 중 · 듣고 있어요… 대사를 말해 주세요.', true);
@@ -645,11 +650,17 @@
       silenceMs: K.silenceForLine(speechOf(item)),
       maxMs: K.takeMsForLine(speechOf(item)),   // 긴 대사도 끝까지 녹음
       minMs: K.minSpeakMsForLine(speechOf(item)),   // 대사 중간에 숨 고르느라 조용해져도 끝내지 않음
-      quickAfterMs: K.typicalSpeakMsForLine(speechOf(item)),   // 보통 속도로 다 말했을 시간이 지나면 짧게만 쉬어도 바로 채점
+      // 연기 속도로 다 말했을 시간이 지나면 짧게만 쉬어도 바로 넘어감. 보통 말 속도(글자당 0.2초)·0.8초 쉼으로 잡았더니
+      // 천천히 쉬어 가며 하는 대사가 중간에 끊겼음 → 1.5배 느린 속도까지 기다리고, 끝 판단 쉼도 1.2초로 (급하면 ✔)
+      quickAfterMs: Math.round(K.typicalSpeakMsForLine(speechOf(item)) * ACTING_PACE),
+      quickSilenceMs: QUICK_END_SILENCE_MS,
+      blindMs: K.blindTakeMsForLine(speechOf(item)),   // 소리 크기를 못 재는 휴대폰: 대사 길이만큼만 녹음하고 넘어감
       onPhase: (phase, ms) => {
         if (token !== runToken) return;
-        $('btn-done-speaking').hidden = phase !== 'timed';
+        // 소리 크기를 못 재거나(blind) 정해진 시간 녹음(timed)일 때는 ✔를 눌러 바로 넘어갈 수 있게
+        $('btn-done-speaking').hidden = phase !== 'timed' && phase !== 'blind';
         if (phase === 'timed') setMic(`⏺ 녹음 중 · 대사를 말해 주세요 (최대 ${Math.round(ms / 1000)}초, 다 말했으면 ✔)`, true);
+        else if (phase === 'blind') setMic('⏺ 녹음 중 · 다 말했으면 ✔를 누르면 바로 넘어가요', true);
         else setMic('⏳ 채점 중…', true);
       },
     });
@@ -702,7 +713,10 @@
     return `\n[진단] ${PHONE_OS} 서버채점 · 오디오 ${d.ctx || '?'} · 최대 ${d.peak.toFixed(4)} / 기준 ${d.threshold.toFixed(4)} · ${d.outcome || '?'} · ${upload}`;
   }
 
-  // 휴대폰 내장 인식은 '네.' 같은 한 글자 대사를 자주 놓쳐서, 서버가 있으면 녹음 설정과 상관없이 서버로 채점
+  const flowMode = () => state.opts.flow !== false;
+
+  // 휴대폰 + 서버일 때는 모든 대사를 서버로 채점. 긴 대사만 내장 인식으로 돌리면 대사마다 마이크를 닫았다 다시 열어
+  // 휴대폰이 마이크 허용 창을 매번 띄웠음 → 녹음 한 가지로만 들어서 마이크를 연습 내내 열어 둠
   function useCloudScoring() {
     return RECORD_BLOCKS_SCORING && cloudReady && R.canRecord;
   }
@@ -712,6 +726,8 @@
     recordResult(state.index, score);
     noteScore(item, spoken, score, threshold);
     showDiff(item, spoken, score);
+    // 대화하듯 이어 하기: 말한 게 있으면 점수와 상관없이 기다리지 않고 바로 다음 대사로 (점수는 목록·마지막에)
+    if (flowMode() && spoken.trim()) { setMic(score >= threshold ? '👏' : `${Math.round(score * 100)}%`); return 'next'; }
     if (score >= threshold) { setMic('👏 좋아요!'); await sleep(700); return 'next'; }
     // 통과 기준에 못 미쳐도 '계속 진행 기준'을 넘으면 멈추지 않고 다음 대사로 (점수·틀린 곳은 남겨 두고 잠깐 보여 줌)
     if (score > (state.opts.keepGoing ?? DEFAULT_KEEP_GOING) / 100) {
@@ -774,7 +790,7 @@
     stopPlayback();
     const token = runToken;
     const btn = $('btn-replay-scene');
-    btn.textContent = '⏹ 재생 멈춤';
+    btn.innerHTML = '⏹<span class="btn-label"> 재생 멈춤</span>';
     btn.onclick = () => { stopPlayback(); resetReplayButton(); };
     const indexes = state.items.map((it, i) => i).filter((i) => state.items[i].type === 'line' && state.items[i].scene === startItem.scene);
     for (const i of indexes) {
@@ -795,7 +811,7 @@
   }
 
   function resetReplayButton() {
-    $('btn-replay-scene').textContent = '🎬 장면 다시 듣기';
+    $('btn-replay-scene').innerHTML = '🎬<span class="btn-label"> 장면 다시 듣기</span>';
     $('btn-replay-scene').onclick = replayScene;
   }
 
