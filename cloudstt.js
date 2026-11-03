@@ -55,6 +55,10 @@
     let resolveFn;
     let rejectFn;
     const promise = new Promise((res, rej) => { resolveFn = res; rejectFn = rej; });
+    // recorded: 녹음이 끝나면 바로 녹음 파일로 풀림 (말이 없었거나 멈췄으면 null). 서버 채점(promise)은 그 뒤 따로
+    // → 대화하듯 이어 하기: 채점을 기다리지 않고 다음 대사로 넘어감
+    let recordedFn;
+    const recorded = new Promise((res) => { recordedFn = res; });
 
     let freshCtx = null;   // 소리 크기가 0으로만 읽힐 때 새로 만든 오디오 (이 녹음이 끝나면 닫음)
     const cleanup = () => {
@@ -77,12 +81,14 @@
       cleanup();
       if (stopped) return;
       // 소리 크기를 못 재는 경우(no-signal)는 말이 없었다고 단정하지 않고 서버에 맡김
-      if (outcome === 'no-speech') { R.discard(); return resolveFn(EMPTY); }
+      if (outcome === 'no-speech') { R.discard(); recordedFn(null); return resolveFn(EMPTY); }
       const blob = await R.stop();
-      if (!blob || stopped) return resolveFn(EMPTY);
+      if (!blob || stopped) { recordedFn(null); return resolveFn(EMPTY); }
+      recordedFn(blob);
       if (onPhase) onPhase('upload');
       resolveFn({ ...(await transcribe(blob, upload.signal, diag, hint, lang)), blob });
     })().catch((err) => {
+      recordedFn(null);
       cleanup();
       R.release();  // 실패하면 마이크를 놓아야 휴대폰 내장 인식 등 다음 시도가 소리를 받음
       if (stopped) return;
@@ -146,6 +152,7 @@
 
     return {
       promise,
+      recorded,
       diag,
       finish() { if (finishLoop) finishLoop('finished'); },
       stop() {
@@ -154,6 +161,7 @@
         upload.abort();
         cleanup();
         R.discard();
+        recordedFn(null);
         resolveFn(EMPTY);
       },
     };
