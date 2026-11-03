@@ -554,6 +554,15 @@
     return Math.round(Math.min(takeMsForLine(text) - TAKE_BASE_MS, chars * MIN_SPEAK_PER_CHAR_MS));
   }
 
+  // 보통 속도로 이 대사를 다 말하는 시간(ms): 글자당 약 0.2초. 이 시간이 지나면 짧게만 조용해도 다 말한 것으로 봄
+  const TYPICAL_SPEAK_PER_CHAR_MS = 200;
+  function typicalSpeakMsForLine(text) {
+    const n = normalize(text);
+    const latin = (n.match(/[a-z]/g) || []).length;
+    const chars = n.length - latin + latin * LATIN_CHAR_WEIGHT;
+    return Math.round(Math.min(takeMsForLine(text) - TAKE_BASE_MS, chars * TYPICAL_SPEAK_PER_CHAR_MS));
+  }
+
   function firstLetterHint(text) {
     return String(text || '').split(/\s+/).map((w) => w.replace(/^([^\p{L}\p{N}]*[\p{L}\p{N}])[\s\S]*$/u, '$1…')).join(' ');
   }
@@ -588,7 +597,7 @@
   function detectMood(text) { return findByWords(MOODS, text); }
   function detectEmotion(text) { return findByWords(EMOTIONS, text); }
 
-  const api = { parseScript, detectLanguage, lineLanguage, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, takeMsForLine, minSpeakMsForLine, alignProgress, keepListening, firstLetterHint, detectMood, detectEmotion, normalize };
+  const api = { parseScript, detectLanguage, lineLanguage, findSpokenNames, listCharacters, suggestNameMerges, splitAsides, spokenText, renameCharacter, similarity, wordDiff, bestAlternative, silenceForLine, takeMsForLine, minSpeakMsForLine, typicalSpeakMsForLine, alignProgress, keepListening, firstLetterHint, detectMood, detectEmotion, normalize };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.ScriptKit = api;
 })(this);

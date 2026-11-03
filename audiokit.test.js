@@ -23,6 +23,15 @@ test('silence detector does not end a long line on a breath before minMs', () =>
   assert.strictEqual(d.update(0.01, 6200), 'speech-end');
 });
 
+test('silence detector ends quickly once the line could be finished at a normal pace', () => {
+  const d = A.createSilenceDetector({ threshold: 0.1, silenceMs: 3000, minMs: 1000, quickAfterMs: 2000, quickSilenceMs: 800, maxMs: 20000 });
+  assert.strictEqual(d.update(0.5, 100), null);     // 말 시작
+  assert.strictEqual(d.update(0.01, 1900), null);   // 아직 보통 속도로 다 말할 시간 전: 1.8초 쉬어도 긴 기준(3초)으로 기다림
+  assert.strictEqual(d.update(0.5, 2100), null);    // 대사 계속
+  assert.strictEqual(d.update(0.01, 2899), null);
+  assert.strictEqual(d.update(0.01, 2900), 'speech-end');   // 다 말할 시간이 지났으면 0.8초 조용하면 바로 끝
+});
+
 test('silence detector gives up when nobody speaks', () => {
   const d = A.createSilenceDetector({ threshold: 0.1, noSpeechMs: 3000 });
   assert.strictEqual(d.update(0.05, 0), null);

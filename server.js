@@ -21,6 +21,7 @@ const GLOBAL_LIMIT = { max: 300, windowMs: 60_000 };  // 인스턴스 전체 분
 const MAX_IN_FLIGHT = 10;          // 동시에 Google로 보내는 요청 수
 const UPSTREAM_TIMEOUT_MS = 10_000;
 // Speech-to-Text v2 (Chirp 3). v1 latest_long은 '네'·'응' 같은 한 글자 대사를 거의 못 알아들었음
+// Chirp 3은 us·eu에만 있음. 서버(서울 Cloud Run)에서 실측: us 중앙값 약 1.7초, eu 약 2.1초 → us
 const STT_LOCATION = 'us';
 const sttUrl = (project) => `https://${STT_LOCATION}-speech.googleapis.com/v2/projects/${project}/locations/${STT_LOCATION}/recognizers/_:recognize`;
 
@@ -145,6 +146,11 @@ const SPEECH_LANGS = new Set(['ko-KR', 'en-US']);
 function speechLanguage(req) {
   const lang = String(req.headers['x-speech-lang'] || '');
   return SPEECH_LANGS.has(lang) ? lang : 'ko-KR';
+}
+
+// 휴대폰이 보낸 단계별 시간(X-Take-Info): 로그에 남길 글자만 남기고 짧게 자름
+function takeInfo(req) {
+  return String(req.headers['x-take-info'] || '').replace(/[^\w=;.-]/g, '').slice(0, 120);
 }
 
 function lineHint(req) {
@@ -298,7 +304,10 @@ function createSttHandler({ allow = createRateLimiter(RATE_LIMIT), allowGlobal =
     if (inFlight >= MAX_IN_FLIGHT) return sendJson(res, 503, TOO_MANY);
     inFlight++;
     try {
+      const startedAt = Date.now();
       const result = await transcribe(wav, info, lineHint(req), speechLanguage(req));
+      // 휴대폰에서 채점이 느릴 때 어디서 걸리는지: 녹음 길이·서버 인식 시간·휴대폰 쪽 시간(녹음·변환)
+      console.log(`[stt] audio=${info.seconds.toFixed(1)}s server=${Date.now() - startedAt}ms ${takeInfo(req)}`);
       return sendJson(res, 200, typeof result === 'string' ? { text: result } : result);
     } catch (err) {
       console.error('[stt]', err.message);  // 자세한 원인은 서버 로그에만 남김
@@ -434,4 +443,4 @@ if (require.main === module) {
   createServer().listen(port, () => console.log(`acting-practice on :${port} (static: ${ROOT})`));
 }
 
-module.exports = { parseWavHeader, validateWav, createRateLimiter, createServer, clientIp, lineHint, speechLanguage, sttRequest, trimSilence, recognize, sttTimeoutMs, MAX_AUDIO_SECONDS };
+module.exports = { parseWavHeader, validateWav, createRateLimiter, createServer, clientIp, lineHint, speechLanguage, sttRequest, trimSilence, recognize, sttTimeoutMs, takeInfo, MAX_AUDIO_SECONDS };

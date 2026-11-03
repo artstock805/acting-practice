@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const net = require('node:net');
-const { createServer, createRateLimiter, validateWav, parseWavHeader, clientIp, lineHint, sttRequest, trimSilence, recognize, sttTimeoutMs, MAX_AUDIO_SECONDS } = require('./server.js');
+const { createServer, createRateLimiter, validateWav, parseWavHeader, clientIp, lineHint, sttRequest, trimSilence, recognize, sttTimeoutMs, takeInfo, MAX_AUDIO_SECONDS } = require('./server.js');
 const { encodeWav } = require('./audiokit.js');
 
 const wavOf = (seconds, rate = 16000) => Buffer.from(encodeWav(new Float32Array(Math.round(seconds * rate)), rate));
@@ -246,7 +246,7 @@ test('recognize asks again once when speech was heard but the answer is empty', 
     const result = await recognize(wav, parseWavHeader(wav), '네.', 'ko-KR', { fetchImpl });
     assert.deepStrictEqual(result, { text: '네.', segments: [['네.']] });
     assert.strictEqual(calls.length, 2);
-    assert.match(calls[0].url, /\/v2\/projects\/test-project\/locations\/us\/recognizers\/_:recognize$/);
+    assert.match(calls[0].url, /^https:\/\/us-speech\.googleapis\.com\/v2\/projects\/test-project\/locations\/us\/recognizers\/_:recognize$/);
     assert.ok(Buffer.from(calls[0].body.content, 'base64').length < 16000 * 2, 'long silence was trimmed before sending');
   });
 });
@@ -262,6 +262,13 @@ test('a failed retry keeps the first empty answer instead of turning into an err
       assert.deepStrictEqual(await recognize(wav, parseWavHeader(wav), '네.', 'ko-KR', { fetchImpl }), { text: '', segments: [] });
     } finally { console.error = original; }
   });
+});
+
+test('the phone timing header is kept short and plain for the server log', () => {
+  assert.strictEqual(takeInfo({ headers: { 'x-take-info': 'outcome=speech-end;ctx=running;take=2400;prep=120' } }), 'outcome=speech-end;ctx=running;take=2400;prep=120');
+  assert.strictEqual(takeInfo({ headers: { 'x-take-info': 'take=1\n<script>' + 'x'.repeat(300) } }).length <= 120, true);
+  assert.doesNotMatch(takeInfo({ headers: { 'x-take-info': 'a\nb<c>' } }), /[\n<>]/);
+  assert.strictEqual(takeInfo({ headers: {} }), '');
 });
 
 test('long recordings get more time from the speech server (40s lines timed out at a flat 10s)', () => {

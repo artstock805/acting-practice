@@ -104,6 +104,14 @@ test('minSpeakMsForLine is about how long the line takes to say, never past the 
   assert.ok(K.minSpeakMsForLine(huge) < K.takeMsForLine(huge));
 });
 
+test('typicalSpeakMsForLine is how long the line takes at a normal pace, after the minimum', () => {
+  const long = '3년 만에 갑자기 나타나서 커피 한 잔 시켜 놓고 두 시간째야. 할 말 있으면 해.';
+  assert.ok(K.typicalSpeakMsForLine('네.') <= 300);
+  assert.ok(K.typicalSpeakMsForLine(long) >= 5000 && K.typicalSpeakMsForLine(long) > K.minSpeakMsForLine(long));
+  const huge = '가'.repeat(1000);
+  assert.ok(K.typicalSpeakMsForLine(huge) < K.takeMsForLine(huge));
+});
+
 test('very short lines need the exact sound (no partial credit for 1~2 syllables)', () => {
   assert.strictEqual(K.similarity('응.', '음'), 0);
   assert.strictEqual(K.similarity('네.', '내'), 0);
