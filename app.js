@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v69';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v70';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -288,6 +288,132 @@
     return picked.length ? picked : all.slice(0, AI_MAX_CHARACTERS);
   }
 
+  // ---------- AI 분석 크레딧 (시험 단계) ----------
+  // 로그인 대신 브라우저마다 임시 ID를 만들어 둠. 서버에 크레딧 원장이 있을 때만(staging) 남은 크레딧과 ID를 보여 줌
+  const CLIENT_ID_KEY = 'acting-practice-client-id';
+  // http로 연 휴대폰(같은 와이파이 주소)에서는 crypto.randomUUID가 없어 직접 만듦
+  function newUuid() {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    const b = crypto.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  }
+  let clientIdCache = '';
+  function clientId() {
+    if (clientIdCache) return clientIdCache;
+    try { clientIdCache = localStorage.getItem(CLIENT_ID_KEY) || ''; } catch (_) { /* 저장 불가 브라우저 */ }
+    if (!clientIdCache) {
+      clientIdCache = newUuid();
+      try { localStorage.setItem(CLIENT_ID_KEY, clientIdCache); } catch (_) { /* 이번 실행 동안만 씀 */ }
+    }
+    return clientIdCache;
+  }
+  // AI 분석 요청 머리글: 누가(임시 ID) 보낸 어떤 요청인지(요청마다 새 ID. 같은 요청이 두 번 가도 한 번만 차감)
+  const aiHeaders = () => ({ 'Content-Type': 'application/json', 'X-Client-Id': clientId(), 'X-Request-Id': newUuid() });
+
+  async function refreshCredits() {
+    if (!CT.available) return;
+    let info;
+    try { info = await (await fetch('/api/credits', { headers: { 'X-Client-Id': clientId() } })).json(); } catch (_) { return; }
+    if (!info || !info.enabled) return;   // 크레딧을 쓰지 않는 버전(운영)은 아무것도 보이지 않음
+    document.querySelectorAll('.credit-info').forEach((box) => {
+      const copy = el('button', { className: 'ghost', textContent: '📋 ID 복사' });
+      copy.onclick = () => navigator.clipboard.writeText(clientId()).then(() => { copy.textContent = '✅ 복사됨'; }, () => {});
+      box.hidden = false;
+      box.textContent = `🎟 남은 크레딧 ${info.balance} (AI 분석 1회 ${info.cost}) · 시험 ID ${clientId()} `;
+      box.append(copy);
+      if (info.pay) {
+        const topUp = el('button', { className: 'primary', textContent: `💳 ${info.pay.amount.toLocaleString()}원 충전 (${info.pay.credits}크레딧)` });
+        topUp.onclick = () => startTopUp(topUp);
+        box.append(' ', topUp);
+      }
+    });
+  }
+
+  // ---------- 크레딧 충전 (토스페이먼츠 결제창) ----------
+  // 서버가 주문(금액)을 먼저 저장 → 토스 결제창 → 결제 후 이 주소로 돌아오면(?pay=success) 서버가 금액을 확인하고 승인
+  const TOSS_SDK = 'https://js.tosspayments.com/v2/standard';
+  let tossSdk = null;
+  function loadTossSdk() {
+    tossSdk = tossSdk || new Promise((resolve, reject) => {
+      const s = el('script', { src: TOSS_SDK });
+      s.onload = () => resolve(window.TossPayments);
+      s.onerror = () => { tossSdk = null; reject(new Error('결제창을 불러오지 못했어요. 인터넷 연결을 확인해 주세요.')); };
+      document.head.append(s);
+    });
+    return tossSdk;
+  }
+
+  function setPayStatus(text, isError) {
+    const box = $('pay-status');
+    box.hidden = !text;
+    box.textContent = text;
+    box.classList.toggle('error', !!isError);
+  }
+
+  async function startTopUp(btn) {
+    btn.disabled = true;
+    let order = null;
+    try {
+      const res = await fetch('/api/pay/order', { method: 'POST', headers: { 'X-Client-Id': clientId() } });
+      order = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(order.error || `주문을 만들지 못했어요 (${res.status})`);
+      const TossPayments = await loadTossSdk();
+      const payment = TossPayments(order.clientKey).payment({ customerKey: order.customerKey });
+      const back = location.origin + location.pathname;
+      // 결제를 마치면 토스가 이 앱 주소로 돌려보냄 (결과는 handlePayReturn에서 처리)
+      await payment.requestPayment({
+        method: 'CARD',
+        amount: { currency: 'KRW', value: order.amount },
+        orderId: order.orderId,
+        orderName: order.orderName,
+        successUrl: back + '?pay=success',
+        failUrl: back + '?pay=fail',
+      });
+    } catch (err) {
+      // PC에서 결제창을 닫으면 여기로 옴 (돌아오는 주소 없이 끝남)
+      if (order && order.orderId) reportPayFail(order.orderId, err.code || 'CLIENT_ERROR');
+      setPayStatus(err.code === 'USER_CANCEL' ? '결제를 취소했어요.' : '⚠ ' + (err.message || '결제를 시작하지 못했어요.'), err.code !== 'USER_CANCEL');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function reportPayFail(orderId, code) {
+    fetch('/api/pay/fail', { method: 'POST', headers: aiHeaders(), body: JSON.stringify({ orderId, code }) }).catch(() => {});
+  }
+
+  const clearPayQuery = () => history.replaceState(null, '', location.pathname);
+
+  // 토스 결제창에서 돌아왔을 때: 성공이면 서버에 승인을 맡기고, 실패·취소면 주문을 정리
+  async function handlePayReturn() {
+    const q = new URLSearchParams(location.search);
+    const kind = q.get('pay');
+    if (!kind) return;
+    if (kind === 'fail') {
+      clearPayQuery();
+      if (q.get('orderId')) reportPayFail(q.get('orderId'), q.get('code') || 'UNKNOWN');
+      setPayStatus(q.get('code') === 'PAY_PROCESS_CANCELED' ? '결제를 취소했어요. 크레딧은 그대로예요.' : `⚠ 결제가 되지 않았어요. ${q.get('message') || ''}`, q.get('code') !== 'PAY_PROCESS_CANCELED');
+      return;
+    }
+    setPayStatus('💳 결제를 확인하는 중…');
+    try {
+      const res = await fetch('/api/pay/confirm', { method: 'POST', headers: aiHeaders(),
+        body: JSON.stringify({ paymentKey: q.get('paymentKey'), orderId: q.get('orderId'), amount: q.get('amount') }) });
+      const body = await res.json().catch(() => ({}));
+      // 503은 일시 오류라 주소를 남겨 둠 (새로 고치면 다시 확인. 서버가 같은 주문은 한 번만 충전)
+      if (res.status !== 503) clearPayQuery();
+      if (!res.ok) throw new Error(body.error || `결제 확인 실패 (${res.status})`);
+      setPayStatus(`✅ ${body.credits}크레딧을 충전했어요. 남은 크레딧 ${body.balance}`);
+    } catch (err) {
+      setPayStatus('⚠ ' + err.message, true);
+    } finally {
+      refreshCredits();
+    }
+  }
+
   // 긴 대본 안내에 붙이는 서재 버튼 (서재 작품은 막·장 하나씩 불러올 수 있음)
   function libraryLink() {
     const btn = el('button', { className: 'ghost', textContent: '📚 서재에서 막·장 하나만 불러오기' });
@@ -332,7 +458,7 @@
     const script = state.text;
     setAiStatus('🤖 AI가 대본을 읽고 배역에 맞는 목소리를 고르는 중… (긴 대본은 30초~1분, 그동안은 자동으로 나눈 목소리로 들을 수 있어요)');
     try {
-      const res = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script, characters: names, lang: scriptLang() }) });
+      const res = await fetch('/api/analyze', { method: 'POST', headers: aiHeaders(), body: JSON.stringify({ script, characters: names, lang: scriptLang() }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `분석 실패 (${res.status})`);
       if (state.text !== script) return;   // 기다리는 사이 다른 대본을 분석했으면 버림
@@ -349,6 +475,8 @@
     } catch (err) {
       if (state.text !== script) return;
       setAiStatus(`⚠ ${err.message || 'AI 분석에 실패했습니다.'} 목소리는 자동으로 나눠 두었어요. 대본 탭에서 '대본 분석'을 다시 누르면 AI 분석을 다시 시도합니다.`, true);
+    } finally {
+      refreshCredits();
     }
   }
 
@@ -511,7 +639,7 @@
     setInsightTabMark('⏳');
     let finished = '';
     try {
-      const res = await fetch('/api/insight', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script, characters: names, lang: scriptLang() }) });
+      const res = await fetch('/api/insight', { method: 'POST', headers: aiHeaders(), body: JSON.stringify({ script, characters: names, lang: scriptLang() }) });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `분석 실패 (${res.status})`);
       if (state.text !== script) throw new Error('분석하는 사이에 대본이 바뀌어 이 결과는 쓰지 않았어요. 다시 눌러 주세요.');
@@ -526,6 +654,7 @@
     } finally {
       clearInterval(timer);
       btn.disabled = false;
+      refreshCredits();
       setInsightTabMark($('view-insight').classList.contains('active') ? '' : finished);
     }
   }
@@ -1156,11 +1285,12 @@
     if (scriptTooLong()) return (sceneArtRequest = Promise.resolve({}));   // 한도를 넘는 대본은 묻지 않고 장면 제목으로 그림
     const script = state.text;
     const scenes = [...new Set(state.items.map((i) => i.scene).filter(Boolean).map(sceneKey))];
-    sceneArtRequest = fetch('/api/scene-art', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script, scenes, lang: scriptLang() }) })
+    sceneArtRequest = fetch('/api/scene-art', { method: 'POST', headers: aiHeaders(), body: JSON.stringify({ script, scenes, lang: scriptLang() }) })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`scene-art ${res.status}`))))
       // 하나도 못 받았으면 저장하지 않음 (다음에 다시 물어봄)
       .then((body) => { if (state.text === script && Object.keys(body.scenes).length) update({ scenePlaces: body.scenes, sceneArt: undefined }); return body.scenes; })
-      .catch(() => ({}));   // 서버 설정 안 됨·한도 초과면 장면 제목으로 그림 (이번 실행 동안은 다시 묻지 않음)
+      .catch(() => ({}))   // 서버 설정 안 됨·한도 초과·크레딧 부족이면 장면 제목으로 그림 (이번 실행 동안은 다시 묻지 않음)
+      .finally(refreshCredits);
     return sceneArtRequest;
   }
 
@@ -1572,6 +1702,8 @@
     S.onVoicesReady(() => { if (state.items.length) renderCast(); });
     if (state.items.length) renderCast();
     enableTabs();
+    refreshCredits();
+    handlePayReturn();
   }
 
   init();

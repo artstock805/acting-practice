@@ -8,6 +8,8 @@ const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const { createTtsHandler, createGoogleSynthesizer, createDailyBudget } = require('./tts.js');
 const { createAnalyzeHandler, createClaudeClient, analyzeWithClaude } = require('./analyze.js');
+const { ANALYSIS_COST, clientIdOf, createCreditStoreFromEnv } = require('./credits.js');
+const { PRODUCT, createPaymentHandlers, createTossClientFromEnv, tossClientKeyFromEnv } = require('./payments.js');
 const { sceneArtWithClaude, parseSceneArtRequest } = require('./sceneart.js');
 const { insightWithClaude } = require('./insight.js');
 const { traceClaude, createLangfuseTracing } = require('./langfuse.js');
@@ -372,7 +374,7 @@ function compressed(entry, encoding) {
   return entry[encoding];
 }
 
-function route({ handleStt, handleTts, handleAnalyze, handleInsight, handleSceneArt, handleLibrary }, req, res) {
+function route({ handleStt, handleTts, handleAnalyze, handleInsight, handleSceneArt, handleLibrary, handleCredits, pay }, req, res) {
   let pathname;
   try { pathname = new URL(req.url, 'http://x').pathname; } catch { return send(res, 400, ''); }  // 예: 'GET //'
   if (pathname === '/api/stt' && req.method === 'POST') return handleStt(req, res);
@@ -381,6 +383,10 @@ function route({ handleStt, handleTts, handleAnalyze, handleInsight, handleScene
   if (pathname === '/api/analyze' && req.method === 'POST') return handleAnalyze(req, res);
   if (pathname === '/api/insight' && req.method === 'POST') return handleInsight(req, res);
   if (pathname === '/api/scene-art' && req.method === 'POST') return handleSceneArt(req, res);
+  if (pathname === '/api/credits' && req.method === 'GET') return handleCredits(req, res);
+  if (pathname === '/api/pay/order' && req.method === 'POST') return pay.handleOrder(req, res);
+  if (pathname === '/api/pay/confirm' && req.method === 'POST') return pay.handleConfirm(req, res);
+  if (pathname === '/api/pay/fail' && req.method === 'POST') return pay.handleFail(req, res);
   const library = /^\/api\/library(?:\/([^/]*))?$/.exec(pathname);
   if (library && req.method === 'GET') {
     let id = '';
@@ -389,6 +395,25 @@ function route({ handleStt, handleTts, handleAnalyze, handleInsight, handleScene
   }
   if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res);
   return send(res, 405, '');
+}
+
+// GET /api/credits: 크레딧을 쓰는지와 남은 크레딧 (크레딧이 꺼진 버전에서는 { enabled: false })
+const CREDITS_RATE_LIMIT = { max: 60, windowMs: 10 * 60_000 };
+function createCreditsHandler({ credits, payEnabled, sendJson, clientIp, createRateLimiter }) {
+  const allow = createRateLimiter(CREDITS_RATE_LIMIT);
+  return async function handleCredits(req, res) {
+    if (!credits) return sendJson(res, 200, { enabled: false });
+    if (!allow(clientIp(req))) return sendJson(res, 429, { error: '잠시 뒤 다시 해 주세요.' });
+    const clientId = clientIdOf(req);
+    if (!clientId) return sendJson(res, 400, { error: '시험 ID가 없습니다.' });
+    try {
+      // pay: 충전 결제를 쓸 수 있으면 상품(금액·크레딧)을 같이 알려 줌
+      return sendJson(res, 200, { enabled: true, balance: await credits.balance(clientId), cost: ANALYSIS_COST, pay: payEnabled ? { amount: PRODUCT.amount, credits: PRODUCT.credits } : null });
+    } catch (err) {
+      console.error('[credits]', err.message);
+      return sendJson(res, 503, { error: '크레딧을 확인하지 못했어요.' });
+    }
+  };
 }
 
 function createServer(opts) {
@@ -403,30 +428,40 @@ function createServer(opts) {
   // Langfuse 키가 있으면 Claude 호출을 용도별 이름(claude-analyze 등)으로 기록 (없으면 claude 그대로)
   const langfuse = opts && 'langfuse' in opts ? opts.langfuse : createLangfuseTracing();
   const traced = (name) => traceClaude(claude, name, langfuse);
+  // AI 분석 크레딧: Supabase 키가 있는 시험(staging) 버전에서만 켜짐 (없으면 지금처럼 일일 상한만)
+  const credits = opts && 'credits' in opts ? opts.credits : createCreditStoreFromEnv();
+  // 충전 결제(토스페이먼츠): 크레딧 원장과 토스 키가 모두 있을 때만
+  const pay = createPaymentHandlers({
+    credits,
+    toss: opts && 'toss' in opts ? opts.toss : createTossClientFromEnv(),
+    clientKey: opts && 'tossClientKey' in opts ? opts.tossClientKey : tossClientKeyFromEnv(),
+    readBody, sendJson, clientIp, createRateLimiter,
+  });
+  const handleCredits = createCreditsHandler({ credits, payEnabled: pay.enabled, sendJson, clientIp, createRateLimiter });
   const handleAnalyze = createAnalyzeHandler({
     analyze: opts && 'analyze' in opts ? opts.analyze : claude && ((args) => analyzeWithClaude(args, traced('analyze'))),
     daily: opts && opts.analyzeDaily,
     maxInFlight: opts && opts.analyzeMaxInFlight,
-    readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
+    readBody, sendJson, clientIp, createRateLimiter, createDailyBudget, credits,
   });
   // 초목표·관계도 분석: 배역 분석과 같은 한도 규칙을 따로 적용 (서로의 한도를 깎지 않음)
   const handleLibrary = createLibraryHandler({ fetchSource: opts && opts.fetchSource, sendJson, clientIp, createRateLimiter });
   const handleInsight = createAnalyzeHandler({
     analyze: opts && 'insight' in opts ? opts.insight : claude && ((args) => insightWithClaude(args, traced('insight'))),
     toBody: (insight) => insight,
-    readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
+    readBody, sendJson, clientIp, createRateLimiter, createDailyBudget, credits,
   });
   // 장면 그림 설명: 'AI 장면 이미지'를 켰을 때 대본마다 한 번 (한도는 따로)
   const handleSceneArt = createAnalyzeHandler({
     analyze: opts && 'sceneArt' in opts ? opts.sceneArt : claude && ((args) => sceneArtWithClaude(args, traced('scene-art'))),
     toBody: (scenes) => ({ scenes }),
     parse: parseSceneArtRequest,
-    readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
+    readBody, sendJson, clientIp, createRateLimiter, createDailyBudget, credits,
   });
   const server = http.createServer((req, res) => {
     // 요청 하나의 예상 못 한 오류가 프로세스 전체를 멈추지 않게 여기서 받음
     Promise.resolve()
-      .then(() => route({ handleStt, handleTts, handleAnalyze, handleInsight, handleSceneArt, handleLibrary }, req, res))
+      .then(() => route({ handleStt, handleTts, handleAnalyze, handleInsight, handleSceneArt, handleLibrary, handleCredits, pay }, req, res))
       .catch((err) => {
         console.error('[server]', err && err.stack ? err.stack : err);
         if (!res.headersSent) send(res, 500, '');
