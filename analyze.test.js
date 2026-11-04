@@ -31,10 +31,29 @@ test('missing script, no characters, too many characters and oversized scripts a
   await withServer({ analyze }, async (base) => {
     assert.strictEqual((await post(base, { script: '', characters: ['민수'] })).status, 400);
     assert.strictEqual((await post(base, { script: SCRIPT, characters: [] })).status, 400);
-    assert.strictEqual((await post(base, { script: SCRIPT, characters: Array.from({ length: 41 }, (_, i) => 'n' + i) })).status, 400);
-    assert.strictEqual((await post(base, { script: '가'.repeat(150_001), characters: ['민수'] })).status, 413);
+    assert.strictEqual((await post(base, { script: SCRIPT, characters: Array.from({ length: 13 }, (_, i) => 'n' + i) })).status, 400);
+    assert.strictEqual((await post(base, { script: '가'.repeat(35_001), characters: ['민수'] })).status, 413);
   });
   assert.strictEqual(count, 0);
+});
+
+// AI 분석 1회(1,000원)의 원가 한도: 대본 35,000자, 배역 12명
+const names = (n) => Array.from({ length: n }, (_, i) => '배역' + i);
+
+test('analyze accepts exactly 35,000 characters and 12 characters, and rejects one more of either', async () => {
+  let count = 0;
+  const analyze = async () => { count++; return []; };
+  await withServer({ analyze }, async (base) => {
+    assert.strictEqual((await post(base, { script: '가'.repeat(35_000), characters: ['민수'] })).status, 200);
+    const long = await post(base, { script: '가'.repeat(35_001), characters: ['민수'] });
+    assert.strictEqual(long.status, 413);
+    assert.strictEqual((await long.json()).error, '대본이 너무 깁니다(35,000자까지). 막이나 장면을 나눠서 분석해 주세요.');
+    assert.strictEqual((await post(base, { script: SCRIPT, characters: names(12) })).status, 200);
+    const many = await post(base, { script: SCRIPT, characters: names(13) });
+    assert.strictEqual(many.status, 400);
+    assert.strictEqual((await many.json()).error, 'AI 분석은 배역 12명까지예요. 주요 배역만 골라 주세요. 나머지는 기본 목소리로 읽어 줍니다.');
+  });
+  assert.strictEqual(count, 2);
 });
 
 test('without an API key the endpoint says AI analysis is not set up', async () => {

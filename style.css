@@ -74,6 +74,9 @@ button:focus-visible, .file-btn:focus-within { outline: 2px solid var(--spot); o
 .voice-bar { margin: 0 0 12px; }
 .merge-box { background: color-mix(in srgb, var(--spot) 12%, var(--stage-2)); border: 1px solid color-mix(in srgb, var(--spot) 45%, transparent); border-radius: var(--radius-lg); padding: 12px 16px; margin: 0 0 14px; }
 .merge-title { margin: 0 0 8px; font-weight: 700; color: var(--paper); }
+.ai-pick-list { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 10px; }
+.ai-pick-item { white-space: nowrap; }
+.ai-pick-item:has(input:disabled) { opacity: 0.5; }
 .merge-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .merge-item { border-top: 1px solid var(--line); padding-top: 10px; }
 .merge-item:first-child { border-top: 0; padding-top: 0; }

@@ -5,8 +5,10 @@
 const { castable, voiceLabel, isCloudVoice, clampRate, languageOf, localeOf } = require('./voicecatalog.js');
 
 const MODEL = 'claude-opus-5-5';
-const MAX_SCRIPT_CHARS = 150_000;       // 장편 대본도 들어가는 크기. 넘으면 잘라 보내지 않고 거절함
-const MAX_CHARACTERS = 40;
+const MAX_SCRIPT_CHARS = 35_000;        // AI 분석 1회(1,000원)의 원가 한도. 넘으면 잘라 보내지 않고 거절함 (장면 그림 설명·초목표 분석도 같은 한도)
+const MAX_CHARACTERS = 12;              // 배역이 많을수록 답이 길어져 원가가 오름 (15명이면 적자). app.js의 AI_MAX_CHARACTERS와 같게
+const TOO_LONG = `대본이 너무 깁니다(${MAX_SCRIPT_CHARS.toLocaleString()}자까지). 막이나 장면을 나눠서 분석해 주세요.`;
+const TOO_MANY = `AI 분석은 배역 ${MAX_CHARACTERS}명까지예요. 주요 배역만 골라 주세요. 나머지는 기본 목소리로 읽어 줍니다.`;
 const MAX_BODY_BYTES = 700 * 1024;      // 한글 15만 자(약 450KB) + 여유
 const ANALYZE_RATE_LIMIT = { max: 5, windowMs: 10 * 60_000 };
 const ANALYZE_GLOBAL_LIMIT = { max: 10, windowMs: 60 * 60_000 };  // 인스턴스 전체 시간당 횟수 (IP를 바꿔 가며 보내는 남용 대비)
@@ -123,10 +125,10 @@ function parseRequest(raw) {
   try { body = JSON.parse(raw.toString('utf8')); } catch { return { status: 400, error: '요청 형식이 잘못되었습니다.' }; }
   const script = body && typeof body.script === 'string' ? body.script.trim() : '';
   if (!script) return { status: 400, error: '분석할 대본이 없습니다.' };
-  if (script.length > MAX_SCRIPT_CHARS) return { status: 413, error: `대본이 너무 깁니다(${MAX_SCRIPT_CHARS.toLocaleString()}자까지).` };
+  if (script.length > MAX_SCRIPT_CHARS) return { status: 413, error: TOO_LONG };
   const names = Array.isArray(body.characters) ? [...new Set(body.characters.filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim().slice(0, 40)))] : [];
   if (!names.length) return { status: 400, error: '분석할 배역이 없습니다.' };
-  if (names.length > MAX_CHARACTERS) return { status: 400, error: `배역이 너무 많습니다(${MAX_CHARACTERS}명까지).` };
+  if (names.length > MAX_CHARACTERS) return { status: 400, error: TOO_MANY };
   return { script, characters: names, lang: body.lang === 'en' ? 'en' : 'ko' };
 }
 
@@ -164,4 +166,4 @@ function createAnalyzeHandler({ analyze, readBody, sendJson, clientIp, createRat
   };
 }
 
-module.exports = { ENGLISH_NOTE, createAnalyzeHandler, createClaudeClient, createClaudeAnalyzer, MODEL, analyzeWithClaude, buildPrompt, normalizeCasting, MAX_SCRIPT_CHARS };
+module.exports = { ENGLISH_NOTE, createAnalyzeHandler, createClaudeClient, createClaudeAnalyzer, MODEL, analyzeWithClaude, buildPrompt, normalizeCasting, MAX_SCRIPT_CHARS, MAX_CHARACTERS, TOO_LONG };
