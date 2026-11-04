@@ -40,6 +40,21 @@ test('POST /api/insight returns the play, character and relationship analysis', 
   assert.deepStrictEqual(seen, [{ script: SCRIPT, characters: ['민수', '지연'], lang: 'ko' }]);
 });
 
+// 배역 분석과 같은 한도 (parseRequest를 같이 씀)
+const names = (n) => Array.from({ length: n }, (_, i) => '배역' + i);
+
+test('insight accepts exactly 35,000 characters and 12 characters, and rejects one more of either', async () => {
+  let count = 0;
+  const insight = async () => { count++; return SAMPLE; };
+  await withServer({ insight }, async (base) => {
+    assert.strictEqual((await post(base, { script: '가'.repeat(35_000), characters: ['민수'] })).status, 200);
+    assert.strictEqual((await post(base, { script: '가'.repeat(35_001), characters: ['민수'] })).status, 413);
+    assert.strictEqual((await post(base, { script: SCRIPT, characters: names(12) })).status, 200);
+    assert.strictEqual((await post(base, { script: SCRIPT, characters: names(13) })).status, 400);
+  });
+  assert.strictEqual(count, 2);
+});
+
 test('without an API key the insight endpoint says it is not set up', async () => {
   await withServer({ insight: null }, async (base) => {
     const res = await post(base, { script: SCRIPT, characters: ['민수'] });

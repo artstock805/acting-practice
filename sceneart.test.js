@@ -33,6 +33,19 @@ test('without an API key the scene-art endpoint says it is not set up', async ()
   });
 });
 
+// 장면 그림 설명도 대본 35,000자까지 (배역은 보내지 않으므로 배역 수 한도는 없음)
+test('scene-art accepts exactly 35,000 characters and rejects 35,001', async () => {
+  let count = 0;
+  const sceneArt = async () => { count++; return {}; };
+  await withServer({ sceneArt }, async (base) => {
+    assert.strictEqual((await post(base, { script: '가'.repeat(35_000), scenes: SCENES })).status, 200);
+    const long = await post(base, { script: '가'.repeat(35_001), scenes: SCENES });
+    assert.strictEqual(long.status, 413);
+    assert.match((await long.json()).error, /35,000자까지/);
+  });
+  assert.strictEqual(count, 1);
+});
+
 test('a scene-art request needs a script and at least one scene', () => {
   assert.strictEqual(parseSceneArtRequest(Buffer.from(JSON.stringify({ script: SCRIPT, scenes: [] }))).status, 400);
   assert.strictEqual(parseSceneArtRequest(Buffer.from(JSON.stringify({ scenes: SCENES }))).status, 400);

@@ -2,7 +2,7 @@
 // 그림 서비스는 한국어 장면 제목(예: '상범집')을 알아듣지 못해 내용과 상관없는 그림이 나왔음 → 지문·대사에서 장소·시간·인물을 읽어 영어로.
 // 'AI 장면 이미지 생성'을 켰을 때 대본마다 한 번만 불림 (앱이 결과를 저장해 둠)
 'use strict';
-const { MAX_SCRIPT_CHARS } = require('./analyze.js');
+const { MAX_SCRIPT_CHARS, TOO_LONG } = require('./analyze.js');
 
 const MODEL = 'claude-haiku-5-5';   // 짧은 그림 설명이라 작은 모델로 충분 (비용 절약)
 const MAX_SCENES = 200;
@@ -72,7 +72,7 @@ function parseSceneArtRequest(raw) {
   try { body = JSON.parse(raw.toString('utf8')); } catch { return { status: 400, error: '요청 형식이 잘못되었습니다.' }; }
   const script = body && typeof body.script === 'string' ? body.script.trim() : '';
   if (!script) return { status: 400, error: '대본이 없습니다.' };
-  if (script.length > MAX_SCRIPT_CHARS) return { status: 413, error: `대본이 너무 깁니다(${MAX_SCRIPT_CHARS.toLocaleString()}자까지).` };
+  if (script.length > MAX_SCRIPT_CHARS) return { status: 413, error: TOO_LONG };
   const scenes = Array.isArray(body.scenes)
     ? [...new Set(body.scenes.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim().slice(0, MAX_SCENE_TITLE).trim()))]
     : [];

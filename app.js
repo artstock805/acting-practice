@@ -24,7 +24,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v68';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v69';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -93,12 +93,12 @@
     const sameText = text === state.text;
     if (!sameText) sceneArtRequest = null;   // 대본이 바뀌면 장면 그림 설명을 새로 받음
     update({ text, items, cast, index: 0, results: {}, mergeDismissed: [], insight: sameText ? state.insight : null, scenePlaces: sameText ? state.scenePlaces : null, sceneArt: undefined,
-      lineStats: sameText ? state.lineStats || {} : {}, opts: sameText ? state.opts : { ...state.opts, range: 'all' } });
+      lineStats: sameText ? state.lineStats || {} : {}, opts: sameText ? state.opts : { ...state.opts, range: 'all' }, aiPick: sameText ? state.aiPick : null });
     renderCast();
     enableTabs();
     showView('cast');
     // 서버가 있으면 AI 배역 분석·목소리 추천을 바로 돌림. 같은 대본을 다시 분석할 때는 이미 분석한 배역이면 건너뜀 (비용·횟수 제한)
-    if (CT.available && (!sameText || chars.some((c) => !state.cast[c.name].profile))) analyzeCast();
+    if (CT.available && (!sameText || aiCastNames().some((n) => !state.cast[n].profile))) analyzeCast();
   }
 
   // ---------- 인물 이름 오타 합치기 제안 ----------
@@ -171,6 +171,7 @@
     body.textContent = '';
     const chars = K.listCharacters(state.items);
     renderMergeSuggestions(chars);
+    renderAiPick(chars);
     chars.forEach(({ name, lines }) => {
       const cfg = state.cast[name];
       const tr = document.createElement('tr');
@@ -272,10 +273,62 @@
     return box;
   }
 
+  // AI 분석 1회(1,000원)의 한도 (analyze.js와 같게). 넘으면 서버까지 보내지 않고 바로 안내
+  const AI_MAX_SCRIPT_CHARS = 35_000;
+  const AI_MAX_CHARACTERS = 12;
+  const AI_TOO_LONG = `대본이 너무 깁니다(${AI_MAX_SCRIPT_CHARS.toLocaleString()}자까지). 막이나 장면을 나눠서 분석해 주세요.`;
+  const AI_TOO_MANY = `AI 분석은 배역 ${AI_MAX_CHARACTERS}명까지예요. 주요 배역만 골라 주세요. 나머지는 기본 목소리로 읽어 줍니다.`;
+  const scriptTooLong = () => state.text.trim().length > AI_MAX_SCRIPT_CHARS;   // 서버도 앞뒤 공백을 빼고 셈
+
+  // AI 분석에 보낼 배역: 12명 이하면 모두, 넘으면 사용자가 고른 배역 (고르기 전에는 대사 많은 순 12명)
+  function aiCastNames() {
+    const all = K.listCharacters(state.items).map((c) => c.name);
+    if (all.length <= AI_MAX_CHARACTERS) return all;
+    const picked = (state.aiPick || []).filter((n) => all.includes(n)).slice(0, AI_MAX_CHARACTERS);
+    return picked.length ? picked : all.slice(0, AI_MAX_CHARACTERS);
+  }
+
+  // 긴 대본 안내에 붙이는 서재 버튼 (서재 작품은 막·장 하나씩 불러올 수 있음)
+  function libraryLink() {
+    const btn = el('button', { className: 'ghost', textContent: '📚 서재에서 막·장 하나만 불러오기' });
+    btn.onclick = openLibrary;
+    return btn;
+  }
+
+  // 배역이 12명을 넘을 때만: AI 분석에 보낼 배역 고르기 (12명을 고르면 나머지 칸은 잠김)
+  function renderAiPick(chars) {
+    const box = $('ai-pick');
+    box.hidden = !CT.available || chars.length <= AI_MAX_CHARACTERS;
+    if (box.hidden) return;
+    const picked = new Set(aiCastNames());
+    $('ai-pick-title').textContent = `🤖 ${AI_TOO_MANY} 대사가 많은 순으로 ${AI_MAX_CHARACTERS}명을 골라 두었어요.`;
+    const list = $('ai-pick-list');
+    list.textContent = '';
+    const boxes = chars.map(({ name, lines }) => {
+      const cb = el('input', { type: 'checkbox', checked: picked.has(name) });
+      const label = el('label', { className: 'ai-pick-item' });
+      label.append(cb, ` ${name} (${lines})`);
+      list.append(label);
+      return { name, cb };
+    });
+    const btn = $('btn-ai-pick');
+    const sync = () => {
+      const chosen = boxes.filter((b) => b.cb.checked).map((b) => b.name);
+      boxes.forEach((b) => { b.cb.disabled = !b.cb.checked && chosen.length >= AI_MAX_CHARACTERS; });
+      btn.disabled = !chosen.length;
+      btn.textContent = `🤖 고른 ${chosen.length}명으로 AI 분석 다시 하기`;
+      return chosen;
+    };
+    boxes.forEach((b) => { b.cb.onchange = () => update({ aiPick: sync() }); });
+    sync();
+    btn.onclick = analyzeCast;
+  }
+
   // 대본을 서버(Claude)로 보내 배역마다 성격을 읽고 목소리를 추천받아 바로 적용 (대본 분석 때 자동으로 불림)
   async function analyzeCast() {
-    const names = K.listCharacters(state.items).map((c) => c.name);
+    const names = aiCastNames();
     if (!names.length) return;
+    if (scriptTooLong()) return setAiStatus(`⚠ ${AI_TOO_LONG} 목소리는 자동으로 나눠 두었어요.`, true, libraryLink());
     const script = state.text;
     setAiStatus('🤖 AI가 대본을 읽고 배역에 맞는 목소리를 고르는 중… (긴 대본은 30초~1분, 그동안은 자동으로 나눈 목소리로 들을 수 있어요)');
     try {
@@ -299,10 +352,11 @@
     }
   }
 
-  function setAiStatus(text, isError) {
+  function setAiStatus(text, isError, extra) {
     const box = $('ai-status');
     box.hidden = !text;
     box.textContent = text;
+    if (extra) box.append(' ', extra);
     box.classList.toggle('error', !!isError);
   }
 
@@ -440,8 +494,9 @@
 
   async function runInsight() {
     const btn = $('btn-insight');
-    const names = K.listCharacters(state.items).map((c) => c.name);
+    const names = aiCastNames();
     if (!names.length) return;
+    if (scriptTooLong()) return setInsightStatus('⚠ ' + AI_TOO_LONG, true, libraryLink());
     if (state.insight && !confirm('지금 분석(직접 고친 내용 포함)을 새 분석으로 바꿀까요?')) return;
     const script = state.text;
     btn.disabled = true;
@@ -485,10 +540,11 @@
     }
   }
 
-  function setInsightStatus(text, isError) {
+  function setInsightStatus(text, isError, extra) {
     const box = $('insight-status');
     box.hidden = !text;
     box.textContent = text;
+    if (extra) box.append(' ', extra);
     box.classList.toggle('error', !!isError);
   }
 
@@ -1097,6 +1153,7 @@
   function sceneArtPrompts() {
     if (state.scenePlaces) return Promise.resolve(state.scenePlaces);
     if (sceneArtRequest) return sceneArtRequest;
+    if (scriptTooLong()) return (sceneArtRequest = Promise.resolve({}));   // 한도를 넘는 대본은 묻지 않고 장면 제목으로 그림
     const script = state.text;
     const scenes = [...new Set(state.items.map((i) => i.scene).filter(Boolean).map(sceneKey))];
     sceneArtRequest = fetch('/api/scene-art', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script, scenes, lang: scriptLang() }) })
