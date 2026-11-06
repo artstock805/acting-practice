@@ -32,6 +32,8 @@
   </header>
 
   <main>
+    <!-- 크레딧 충전 결제 결과 (토스 결제창에서 돌아왔을 때) -->
+    <p id="pay-status" class="note import-status" hidden></p>
     <!-- 1. 대본 입력 -->
     <section id="view-script" class="view active">
       <p class="help">대본을 붙여 넣거나, 아래에서 예시·서재·파일로 불러오세요.</p>
@@ -72,6 +74,7 @@
     <section id="view-cast" class="view">
       <p class="help">내가 연기할 역할을 체크하세요. 나머지 역할은 앱이 읽어 줍니다. 이름을 고치면 같은 이름끼리 합쳐집니다(예: "민수"와 "민수(V.O.)" 통합).</p>
       <p id="voice-count" class="note"></p>
+      <p class="note credit-info" hidden></p>
       <!-- AI 배역 분석·목소리 추천은 대본 분석 때 자동으로 돌고, 진행 상황만 여기 보여 줌 -->
       <p id="ai-status" class="note import-status" hidden></p>
       <!-- 배역이 12명을 넘으면 AI 분석에 보낼 배역을 고름 (기본: 대사 많은 순 12명) -->
@@ -136,6 +139,7 @@
         <button type="button" class="info-btn" data-help="help-insight" aria-expanded="false" aria-label="작품 분석 설명 보기">ⓘ</button>
         <p id="help-insight" class="option-help" hidden><b>초목표</b>는 인물(또는 작품)이 처음부터 끝까지 끝내 이루려는 가장 큰 목표, <b>관통행동</b>은 그 목표를 향해 극 전체를 꿰뚫는 행동, <b>장애물</b>은 그것을 막는 것입니다. 버튼을 누르면 대본 전체가 Claude(Anthropic의 AI)로 전송되어 작품·배역별 초목표와 근거 대사, 인물 관계를 정리하고 관계도를 그립니다(서버에 저장하지 않음). 긴 대본 한 번에 약 300~500원이 들며 10분에 5번까지 할 수 있어요. 관계도는 🖼 이미지로 저장, 내용은 📋 복사로 노션 등에 붙여 넣을 수 있어요.</p>
         <p id="insight-status" class="note import-status" hidden></p>
+        <p class="note credit-info" hidden></p>
       </div>
       <div id="insight-actions" class="row" hidden>
         <button id="btn-insight-png" class="ghost">🖼 관계도 이미지로 저장</button>

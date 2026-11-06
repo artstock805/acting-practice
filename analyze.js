@@ -3,6 +3,7 @@
 // API 키는 Secret Manager → 환경 변수 ANTHROPIC_API_KEY로만 받음 (키가 없으면 503으로 '설정 안 됨' 안내)
 'use strict';
 const { castable, voiceLabel, isCloudVoice, clampRate, languageOf, localeOf } = require('./voicecatalog.js');
+const { scriptHash, clientIdOf, requestIdOf } = require('./credits.js');
 
 const MODEL = 'claude-opus-5-5';
 const MAX_SCRIPT_CHARS = 35_000;        // AI 분석 1회(1,000원)의 원가 한도. 넘으면 잘라 보내지 않고 거절함 (장면 그림 설명·초목표 분석도 같은 한도)
@@ -16,6 +17,9 @@ const DAILY_ANALYSES = 20;              // 인스턴스 하나가 하루에 하�
 const DAILY_ANALYSES_PER_CLIENT = 10;   // 한 사람(IP)이 하루에 하는 분석 횟수 상한
 const MAX_IN_FLIGHT = 2;                // 동시에 진행하는 분석 수 (큰 대본 여러 개가 메모리를 다 쓰지 않게)
 const USED_UP = '오늘 할 수 있는 AI 분석 횟수를 다 썼습니다. 내일 다시 해 주세요.';
+const NO_CLIENT_ID = '시험 ID가 없어 크레딧을 확인할 수 없어요. 페이지를 새로 고친 뒤 다시 해 주세요.';
+const CREDIT_CHECK_FAILED = '크레딧을 확인하지 못했어요. 잠시 뒤 다시 해 주세요.';
+const noCredits = (balance) => `크레딧이 부족해요(남은 크레딧 ${balance}). AI 분석 1회에 100크레딧이 필요해요.`;
 const CLAUDE_TIMEOUT_MS = 120_000;
 const AGES = ['어린이', '10대', '20대', '30대', '40대', '50대', '60대 이상', '알 수 없음'];
 
@@ -132,8 +136,9 @@ function parseRequest(raw) {
   return { script, characters: names, lang: body.lang === 'en' ? 'en' : 'ko' };
 }
 
+// credits: 크레딧 원장(credits.js). 있으면 같은 대본의 세 분석 중 처음 것만 100크레딧을 차감하고, Claude 호출이 실패하면 환불
 // toBody: 분석 결과를 응답 본문으로 (배역 분석은 { characters }, 초목표 분석은 결과 그대로) · parse: 요청 본문 읽기 (장면 그림 설명은 배역 대신 장면 목록)
-function createAnalyzeHandler({ analyze, readBody, sendJson, clientIp, createRateLimiter, createDailyBudget, daily = DAILY_ANALYSES, maxInFlight = MAX_IN_FLIGHT, toBody = (characters) => ({ characters }), parse = parseRequest }) {
+function createAnalyzeHandler({ analyze, readBody, sendJson, clientIp, createRateLimiter, createDailyBudget, daily = DAILY_ANALYSES, maxInFlight = MAX_IN_FLIGHT, toBody = (characters) => ({ characters }), parse = parseRequest, credits = null }) {
   const allow = createRateLimiter(ANALYZE_RATE_LIMIT);
   const allowGlobal = createRateLimiter(ANALYZE_GLOBAL_LIMIT);
   const spendAll = createDailyBudget(daily);
@@ -152,13 +157,31 @@ function createAnalyzeHandler({ analyze, readBody, sendJson, clientIp, createRat
     if (parsed.error) return sendJson(res, parsed.status, { error: parsed.error });
     if (!allowGlobal('all') || !spendClient(1, who)) return sendJson(res, 429, { error: USED_UP });
     if (!spendAll(1)) { spendClient.refund(1, who); return sendJson(res, 429, { error: USED_UP }); }
-    inFlight++;
+    const refundDaily = () => { spendAll.refund(1); spendClient.refund(1, who); };
+    // 일일 상한은 크레딧과 별개로 남겨 둠 (악용·버그 대비). 크레딧은 일일 상한을 통과한 뒤에 차감
+    let charge = null;
+    inFlight++;   // 크레딧을 확인하는 동안에도 '진행 중'으로 셈 (기다리는 사이 다른 요청이 동시 분석 수를 넘지 않게)
     try {
+      if (credits) {
+        const clientId = clientIdOf(req);
+        if (!clientId) { refundDaily(); return sendJson(res, 400, { error: NO_CLIENT_ID }); }
+        try {
+          charge = await credits.spend({ clientId, scriptHash: scriptHash(parsed.script), requestId: requestIdOf(req) });
+        } catch (err) {
+          refundDaily();
+          console.error('[credits]', err.message);
+          return sendJson(res, 503, { error: CREDIT_CHECK_FAILED });
+        }
+        if (charge.status === 'insufficient') { refundDaily(); return sendJson(res, 402, { error: noCredits(charge.balance), balance: charge.balance }); }
+      }
       return sendJson(res, 200, toBody(await analyze(parsed)));
     } catch (err) {
-      spendAll.refund(1);
-      spendClient.refund(1, who);
+      refundDaily();
       console.error('[analyze]', err.message);  // 자세한 원인은 서버 로그에만
+      // 거절·max_tokens·네트워크 오류 모두 여기로 옴 → 이번 요청이 차감했으면 되돌림
+      if (charge && charge.status === 'charged') {
+        await credits.refund(charge.ledger_id).catch((e) => console.error('[credits] refund failed', charge.ledger_id, e.message));
+      }
       return sendJson(res, 502, { error: 'AI 분석 중 오류가 났습니다. 잠시 뒤 다시 해 주세요.' });
     } finally {
       inFlight--;
