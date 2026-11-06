@@ -29,6 +29,11 @@ const CATALOG = [
   { id: 'gyuhan', title: '규한', titleKo: '규한', author: '이광수', year: 1917, lang: 'ko', source: 'wikisource', url: wikisource('규한'), rights: '이광수(1950년 사망)' },
   { id: 'byeongja-samin', title: '병자삼인', titleKo: '병자삼인', author: '조중환', year: 1912, lang: 'ko', source: 'wikisource', url: wikisource('병자삼인'), rights: '조중환(1947년 사망)' },
   { id: 'jeseok', title: '제석', titleKo: '제석', author: '홍사용', year: 1929, lang: 'ko', source: 'wikisource', url: wikisource('제석'), rights: '홍사용(1947년 사망)' },
+  { id: 'heuin-jeot', title: '흰 젖', titleKo: '흰 젖', author: '홍사용', year: 1928, lang: 'ko', source: 'wikisource', url: wikisource('흰 젖'), rights: '홍사용(1947년 사망)' },
+  { id: 'chulga', title: '출가', titleKo: '출가', author: '홍사용', year: 1928, lang: 'ko', source: 'wikisource', url: wikisource('출가'), rights: '홍사용(1947년 사망)' },
+  { id: 'norae-jumeoni', title: '노래 주머니', titleKo: '노래 주머니', author: '방정환', year: 1923, lang: 'ko', source: 'wikisource', url: wikisource('노래 주머니'), rights: '방정환(1931년 사망)' },
+  { id: 'printed-love-letter', title: '인쇄한 러브레터', titleKo: '인쇄한 러브레터', author: '권환', year: 1927, lang: 'ko', source: 'wikisource', url: wikisource('인쇄한 러브레터'), rights: '권환(1954년 사망)' },
+  { id: 'sarang-gijeok', title: '사랑의 기적', titleKo: '사랑의 기적', author: '박용철', year: 1940, lang: 'ko', source: 'wikisource', url: wikisource('박용철 산문집/사랑의 기적'), rights: '박용철(1938년 사망)' },
 ];
 
 const SOURCE_NAMES = { gutenberg: 'Project Gutenberg', wikisource: '위키문헌' };

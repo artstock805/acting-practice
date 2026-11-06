@@ -93,6 +93,11 @@ test('the catalog only lists public-domain works with a source the server knows'
   assert.strictEqual(new Set(CATALOG.map((w) => w.id)).size, CATALOG.length);
 });
 
+test('the catalog offers as many Korean plays as English ones', () => {
+  const count = (lang) => CATALOG.filter((w) => w.lang === lang).length;
+  assert.strictEqual(count('ko'), count('en'));
+});
+
 test('GET /api/library lists works and GET /api/library/:id converts and caches one', async () => {
   let fetches = 0;
   const fetchSource = async (url) => { fetches++; assert.match(url, /^https:\/\/www\.gutenberg\.org\/cache\/epub\/1524\//); return GUTENBERG; };
