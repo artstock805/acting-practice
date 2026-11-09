@@ -428,7 +428,7 @@ function fakeClaudeWithTracing(answer) {
   const claude = { beta: { messages: { create: async () => ({ model: 'm', stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(answer) }], usage: {} }) } } };
   const langfuse = {
     version: 'abc1234',
-    startObservation: (name, attrs) => { generations.push({ name, attrs }); return { traceId: TRACE, update() {}, end() {} }; },
+    startObservation: (name, attrs) => { generations.push({ name, attrs }); return { traceId: TRACE, id: '0123456789abcdef', update() {}, end() {} }; },
     flush: async () => {},
   };
   return { claude, langfuse, generations };
@@ -440,6 +440,7 @@ test('the analyze answer carries the Langfuse trace id of its Claude call', asyn
   await withServer({ claude, langfuse }, async (base) => {
     const body = await (await jsonPost(base, '/api/analyze', { script: '민수: 안녕', characters: ['민수'] })).json();
     assert.strictEqual(body.traceId, TRACE);
+    assert.strictEqual(body.observationId, '0123456789abcdef');
     assert.strictEqual(body.characters[0].name, '민수');
   });
   assert.strictEqual(generations[0].name, 'claude-analyze');
@@ -450,9 +451,9 @@ test('without Langfuse the analyze and insight answers have a null trace id', as
   const insight = { work: { superObjective: 'x' }, characters: [], relationships: [] };
   await withServer({ analyze: async () => [], insight: async () => insight, langfuse: null }, async (base) => {
     const a = await (await jsonPost(base, '/api/analyze', { script: '민수: 안녕', characters: ['민수'] })).json();
-    assert.deepStrictEqual(a, { characters: [], traceId: null });
+    assert.deepStrictEqual(a, { characters: [], traceId: null, observationId: null });
     const i = await (await jsonPost(base, '/api/insight', { script: '민수: 안녕', characters: ['민수'] })).json();
-    assert.deepStrictEqual(i, { ...insight, traceId: null });
+    assert.deepStrictEqual(i, { ...insight, traceId: null, observationId: null });
   });
 });
 

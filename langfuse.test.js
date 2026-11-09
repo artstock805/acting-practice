@@ -121,7 +121,7 @@ function tracingWithIds() {
   const t = fakeTracing();
   let n = 0;
   const start = t.startObservation;
-  t.startObservation = (...args) => ({ ...start(...args), traceId: String(++n).padStart(32, '0') });
+  t.startObservation = (...args) => { n++; return { ...start(...args), traceId: String(n).padStart(32, '0'), id: String(n).padStart(16, 'f') }; };
   return t;
 }
 
@@ -133,6 +133,8 @@ test('the trace id of the Claude call is handed back with the answer', async () 
   assert.strictEqual(b.value, '분석:나');
   assert.notStrictEqual(a.traceId, b.traceId);
   assert.match(a.traceId, /^0+[12]$/);
+  assert.match(a.observationId, /^f+[12]$/);   // 점수를 루트 관측(generation)에도 붙이려고 함께 돌려줌
+  assert.strictEqual(a.traceId.at(-1), a.observationId.at(-1));
 });
 
 test('without Langfuse the trace id is null and nothing is scored', async () => {
@@ -140,6 +142,7 @@ test('without Langfuse the trace id is null and nothing is scored', async () => 
   const out = await analyze();
   assert.strictEqual(out.value, RESPONSE);
   assert.strictEqual(out.traceId, null);
+  assert.strictEqual(out.observationId, null);
   assert.strictEqual(createLangfuseScorer({}), null);
   assert.strictEqual(createLangfuseScorer({ LANGFUSE_PUBLIC_KEY: 'pk' }), null);
 });

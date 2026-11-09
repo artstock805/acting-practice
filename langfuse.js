@@ -59,14 +59,15 @@ function createLangfuseScorer(env = process.env) {
   return sharedScorer;
 }
 
-// 요청 하나에서 만든 Claude generation의 traceId를 모아 응답에 실어 보냄 (피드백 점수를 그 트레이스에 붙이려고)
-// Langfuse가 꺼져 있거나 기록에 실패하면 traceId는 null
+// 요청 하나에서 만든 Claude generation의 traceId·observationId를 모아 응답에 실어 보냄 (피드백 점수를 그 기록에 붙이려고)
+// observationId도 함께 쓰는 이유: Langfuse v4 화면은 관측 없이 트레이스에만 붙은 점수를 보여 주지 않음 (langfuse/langfuse#18014)
+// Langfuse가 꺼져 있거나 기록에 실패하면 둘 다 null
 const traceIds = new AsyncLocalStorage();
 function captureTraceId(fn) {
   return async (...args) => {
-    const box = { traceId: null };
+    const box = { traceId: null, observationId: null };
     const value = await traceIds.run(box, () => fn(...args));
-    return { value, traceId: box.traceId };
+    return { value, traceId: box.traceId, observationId: box.observationId };
   };
 }
 
@@ -102,7 +103,10 @@ function traceClaude(client, name, tracing) {
       ...(tracing.version ? { version: tracing.version } : {}),
     }, { asType: 'generation' }));
     if (!generation) return client.beta.messages.create(req);
-    quietly(() => { const box = traceIds.getStore(); if (box && generation.traceId) box.traceId = generation.traceId; });
+    quietly(() => {
+      const box = traceIds.getStore();
+      if (box && generation.traceId) Object.assign(box, { traceId: generation.traceId, observationId: generation.id || null });
+    });
     try {
       const res = await client.beta.messages.create(req);
       quietly(() => {

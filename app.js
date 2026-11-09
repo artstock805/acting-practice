@@ -25,7 +25,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v71';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v72';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -360,11 +360,11 @@
 
   // ---------- AI 분석 피드백 (Langfuse 점수) ----------
   // 서버에 Langfuse가 켜져 있어 분석 결과에 traceId가 있을 때만 보냄. 서버가 받았으면 true (네트워크 오류·429 등은 false)
-  async function sendFeedback(traceId, name, value, comment) {
+  async function sendFeedback({ traceId, observationId }, name, value, comment) {
     try {
       const res = await fetch('/api/feedback', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
-        body: JSON.stringify({ traceId, name, value, ...(comment ? { comment } : {}) }),
+        body: JSON.stringify({ traceId, ...(observationId ? { observationId } : {}), name, value, ...(comment ? { comment } : {}) }),
       });
       return res.ok;
     } catch (_) { return false; }
@@ -391,7 +391,7 @@
   async function vote(key, boxId, onVote, value) {
     const t = state[key];
     if (!t || t.vote === 0 || t.vote === 1) return;
-    const ok = await sendFeedback(t.traceId, 'user-feedback', value);
+    const ok = await sendFeedback(t, 'user-feedback', value);
     if (state[key] !== t) return;   // 그사이 새 분석으로 바뀌었으면 버림
     if (ok) update({ [key]: { ...t, vote: value } });
     renderFeedback(boxId, state[key], onVote, !ok);
@@ -407,7 +407,7 @@
     const recommended = t.picks[name];
     if (!recommended || patch.cloudVoice === recommended || t.changed.includes(name)) return;
     update({ aiTrace: { ...t, changed: [...t.changed, name] } });
-    sendFeedback(t.traceId, 'voice-changed', 1, `${name}: ${recommended} → ${patch.cloudVoice || '이 기기 음성'}`).then((ok) => {
+    sendFeedback(t, 'voice-changed', 1, `${name}: ${recommended} → ${patch.cloudVoice || '이 기기 음성'}`).then((ok) => {
       const now = state.aiTrace;
       if (!ok && now && now.traceId === t.traceId) update({ aiTrace: { ...now, changed: now.changed.filter((n) => n !== name) } });
     });
@@ -499,7 +499,7 @@
         cast[name] = { ...cast[name], profile, ...(voice ? { cloudVoice: voice, rateScale: rate, persona: 'ai' } : {}) };
         if (voice) picks[name] = voice;
       });
-      update({ cast, aiTrace: body.traceId ? { traceId: body.traceId, picks, vote: null, changed: [] } : null });
+      update({ cast, aiTrace: body.traceId ? { traceId: body.traceId, observationId: body.observationId || null, picks, vote: null, changed: [] } : null });
       renderCast();
       setAiStatus(`✅ ${body.characters.length}명의 배역을 분석해 목소리를 골랐어요. 🔊로 들어 보고 마음에 안 들면 바꾸세요.`);
     } catch (err) {
@@ -672,8 +672,8 @@
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `분석 실패 (${res.status})`);
       if (state.text !== script) throw new Error('분석하는 사이에 대본이 바뀌어 이 결과는 쓰지 않았어요. 다시 눌러 주세요.');
-      const { traceId, ...insight } = body;   // traceId는 피드백용으로 따로 둠 (분석 내용에 섞지 않음)
-      update({ insight, insightTrace: traceId ? { traceId, vote: null } : null });
+      const { traceId, observationId, ...insight } = body;   // traceId·observationId는 피드백용으로 따로 둠 (분석 내용에 섞지 않음)
+      update({ insight, insightTrace: traceId ? { traceId, observationId: observationId || null, vote: null } : null });
       renderInsight();
       const secs = Math.round((Date.now() - started) / 1000);
       setInsightStatus(`✅ ${secs}초 만에 작품 초목표, 배역 ${body.characters.length}명, 관계 ${body.relationships.length}개를 정리했어요. 칸을 눌러 직접 고칠 수 있어요.`);

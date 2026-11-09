@@ -8,6 +8,7 @@ const { flushQuietly } = require('./langfuse.js');
 
 const FEEDBACK_NAMES = { 'user-feedback': [0, 1], 'voice-changed': [1] };   // 이름별로 받을 수 있는 값 (모두 BOOLEAN)
 const TRACE_ID = /^[0-9a-f]{32}$/;   // OpenTelemetry trace id (16바이트 hex)
+const OBSERVATION_ID = /^[0-9a-f]{16}$/;   // OpenTelemetry span id (8바이트 hex) = Claude 호출 generation의 id
 const MAX_COMMENT = 300;
 const MAX_BODY_BYTES = 2 * 1024;
 const FEEDBACK_RATE_LIMIT = { max: 30, windowMs: 10 * 60_000 };         // IP당 10분에 30번
@@ -19,8 +20,9 @@ function parseFeedback(raw) {
   let body;
   try { body = JSON.parse(raw.toString('utf8')); } catch { return bad('요청 형식이 잘못되었습니다.'); }
   if (!body || typeof body !== 'object') return bad('요청 형식이 잘못되었습니다.');
-  const { traceId, name, comment } = body;
+  const { traceId, observationId, name, comment } = body;
   if (typeof traceId !== 'string' || !TRACE_ID.test(traceId)) return bad('어느 분석에 대한 의견인지 알 수 없습니다.');
+  if (observationId !== undefined && (typeof observationId !== 'string' || !OBSERVATION_ID.test(observationId))) return bad('어느 분석에 대한 의견인지 알 수 없습니다.');
   if (!Object.hasOwn(FEEDBACK_NAMES, name)) return bad('받을 수 없는 의견 종류입니다.');
   const value = typeof body.value === 'boolean' ? Number(body.value) : body.value;
   if (!FEEDBACK_NAMES[name].includes(value)) return bad('받을 수 없는 값입니다.');
@@ -30,7 +32,8 @@ function parseFeedback(raw) {
     score: {
       // 좋아요/별로예요는 결과 하나에 하나: 같은 id면 Langfuse가 새로 만들지 않고 덮어씀
       ...(name === 'user-feedback' ? { id: `${traceId}-user-feedback` } : {}),
-      traceId, name, value, dataType: 'BOOLEAN',
+      // 관측 id까지 붙여야 Langfuse v4 화면(Tracing 표·관측 상세)에 점수가 보임 (트레이스만 붙이면 저장은 되지만 안 보임)
+      traceId, ...(observationId ? { observationId } : {}), name, value, dataType: 'BOOLEAN',
       ...(note ? { comment: note } : {}),
     },
   };

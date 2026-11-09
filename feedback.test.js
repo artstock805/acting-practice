@@ -4,6 +4,7 @@ const assert = require('node:assert');
 const { parseFeedback, createFeedbackHandler, MAX_BODY_BYTES } = require('./feedback.js');
 
 const TRACE = '0123456789abcdef0123456789abcdef';
+const OBS = '89abcdef01234567';
 const raw = (body) => Buffer.from(JSON.stringify(body));
 
 test('a like or dislike becomes a boolean user-feedback score, one per result', () => {
@@ -11,6 +12,14 @@ test('a like or dislike becomes a boolean user-feedback score, one per result', 
     { id: `${TRACE}-user-feedback`, traceId: TRACE, name: 'user-feedback', value: 1, dataType: 'BOOLEAN' });
   assert.strictEqual(parseFeedback(raw({ traceId: TRACE, name: 'user-feedback', value: 0 })).score.value, 0);
   assert.strictEqual(parseFeedback(raw({ traceId: TRACE, name: 'user-feedback', value: false })).score.value, 0);
+});
+
+test('a score is attached to the analysis observation too, so the Langfuse v4 tables show it', () => {
+  const { score } = parseFeedback(raw({ traceId: TRACE, observationId: OBS, name: 'user-feedback', value: 1 }));
+  assert.strictEqual(score.observationId, OBS);
+  assert.strictEqual(score.traceId, TRACE);
+  assert.strictEqual(parseFeedback(raw({ traceId: TRACE, observationId: 'xyz', name: 'user-feedback', value: 1 })).status, 400);
+  assert.ok(!('observationId' in parseFeedback(raw({ traceId: TRACE, name: 'user-feedback', value: 1 })).score));
 });
 
 test('a voice change becomes a voice-changed score with its comment', () => {

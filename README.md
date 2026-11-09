@@ -136,7 +136,7 @@ Langfuse가 느리거나 멈춰도 답은 늦어야 2초 늦게 나갑니다. �
 staging 배포는 실행할 때 넘긴 커밋 SHA를 씁니다(아래 실행 명령 참고). 넘기지 않으면 `staging-<빌드 ID>`가 남습니다.
 
 **사용자 피드백 점수**
-배역 분석과 초목표 분석은 응답에 그 호출의 `traceId`를 함께 보냅니다(Langfuse가 꺼져 있으면 `null`). 앱은 이 값으로 `POST /api/feedback`을 불러 그 트레이스에 점수(Score)를 붙입니다.
+배역 분석과 초목표 분석은 응답에 그 호출의 `traceId`와 `observationId`(`claude-…` generation의 id)를 함께 보냅니다(Langfuse가 꺼져 있으면 둘 다 `null`). 앱은 이 값으로 `POST /api/feedback`을 불러 그 기록에 점수(Score)를 붙입니다. 점수를 트레이스에만 붙이면 저장은 되지만 Langfuse v4 화면에는 보이지 않아서([langfuse#18014](https://github.com/langfuse/langfuse/issues/18014)) generation에도 함께 붙입니다.
 
 | 점수 이름 | 값 (BOOLEAN) | 언제 |
 |---|---|---|

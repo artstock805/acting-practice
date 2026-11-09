@@ -405,11 +405,11 @@ function createServer(opts) {
   // Langfuse 키가 있으면 Claude 호출을 용도별 이름(claude-analyze 등)으로 기록 (없으면 claude 그대로)
   const langfuse = opts && 'langfuse' in opts ? opts.langfuse : createLangfuseTracing();
   const traced = (name) => traceClaude(claude, name, langfuse);
-  // 배역 분석·초목표 분석은 응답에 그 호출의 Langfuse traceId를 실어 보냄 (피드백 점수를 붙이는 데 씀, 꺼져 있으면 null)
+  // 배역 분석·초목표 분석은 응답에 그 호출의 Langfuse traceId·observationId를 실어 보냄 (피드백 점수를 붙이는 데 씀, 꺼져 있으면 null)
   const withTrace = (fn) => fn && captureTraceId(fn);
   const handleAnalyze = createAnalyzeHandler({
     analyze: withTrace(opts && 'analyze' in opts ? opts.analyze : claude && ((args) => analyzeWithClaude(args, traced('analyze')))),
-    toBody: ({ value, traceId }) => ({ characters: value, traceId }),
+    toBody: ({ value, traceId, observationId }) => ({ characters: value, traceId, observationId }),
     daily: opts && opts.analyzeDaily,
     maxInFlight: opts && opts.analyzeMaxInFlight,
     readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
@@ -418,7 +418,7 @@ function createServer(opts) {
   const handleLibrary = createLibraryHandler({ fetchSource: opts && opts.fetchSource, sendJson, clientIp, createRateLimiter });
   const handleInsight = createAnalyzeHandler({
     analyze: withTrace(opts && 'insight' in opts ? opts.insight : claude && ((args) => insightWithClaude(args, traced('insight')))),
-    toBody: ({ value, traceId }) => ({ ...value, traceId }),
+    toBody: ({ value, traceId, observationId }) => ({ ...value, traceId, observationId }),
     readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
   });
   // 장면 그림 설명: 'AI 장면 이미지'를 켰을 때 대본마다 한 번 (한도는 따로)
