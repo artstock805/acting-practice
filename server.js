@@ -10,7 +10,8 @@ const { createTtsHandler, createGoogleSynthesizer, createDailyBudget } = require
 const { createAnalyzeHandler, createClaudeClient, analyzeWithClaude } = require('./analyze.js');
 const { sceneArtWithClaude, parseSceneArtRequest } = require('./sceneart.js');
 const { insightWithClaude } = require('./insight.js');
-const { traceClaude, createLangfuseTracing } = require('./langfuse.js');
+const { traceClaude, createLangfuseTracing, createLangfuseScorer, captureTraceId } = require('./langfuse.js');
+const { createFeedbackHandler } = require('./feedback.js');
 const { createLibraryHandler } = require('./library.js');
 
 const ROOT = path.resolve(process.env.STATIC_ROOT || __dirname);
@@ -372,7 +373,7 @@ function compressed(entry, encoding) {
   return entry[encoding];
 }
 
-function route({ handleStt, handleTts, handleAnalyze, handleInsight, handleSceneArt, handleLibrary }, req, res) {
+function route({ handleStt, handleTts, handleAnalyze, handleInsight, handleSceneArt, handleLibrary, handleFeedback }, req, res) {
   let pathname;
   try { pathname = new URL(req.url, 'http://x').pathname; } catch { return send(res, 400, ''); }  // 예: 'GET //'
   if (pathname === '/api/stt' && req.method === 'POST') return handleStt(req, res);
@@ -381,6 +382,7 @@ function route({ handleStt, handleTts, handleAnalyze, handleInsight, handleScene
   if (pathname === '/api/analyze' && req.method === 'POST') return handleAnalyze(req, res);
   if (pathname === '/api/insight' && req.method === 'POST') return handleInsight(req, res);
   if (pathname === '/api/scene-art' && req.method === 'POST') return handleSceneArt(req, res);
+  if (pathname === '/api/feedback' && req.method === 'POST') return handleFeedback(req, res);
   const library = /^\/api\/library(?:\/([^/]*))?$/.exec(pathname);
   if (library && req.method === 'GET') {
     let id = '';
@@ -403,8 +405,11 @@ function createServer(opts) {
   // Langfuse 키가 있으면 Claude 호출을 용도별 이름(claude-analyze 등)으로 기록 (없으면 claude 그대로)
   const langfuse = opts && 'langfuse' in opts ? opts.langfuse : createLangfuseTracing();
   const traced = (name) => traceClaude(claude, name, langfuse);
+  // 배역 분석·초목표 분석은 응답에 그 호출의 Langfuse traceId·observationId를 실어 보냄 (피드백 점수를 붙이는 데 씀, 꺼져 있으면 null)
+  const withTrace = (fn) => fn && captureTraceId(fn);
   const handleAnalyze = createAnalyzeHandler({
-    analyze: opts && 'analyze' in opts ? opts.analyze : claude && ((args) => analyzeWithClaude(args, traced('analyze'))),
+    analyze: withTrace(opts && 'analyze' in opts ? opts.analyze : claude && ((args) => analyzeWithClaude(args, traced('analyze')))),
+    toBody: ({ value, traceId, observationId }) => ({ characters: value, traceId, observationId }),
     daily: opts && opts.analyzeDaily,
     maxInFlight: opts && opts.analyzeMaxInFlight,
     readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
@@ -412,8 +417,8 @@ function createServer(opts) {
   // 초목표·관계도 분석: 배역 분석과 같은 한도 규칙을 따로 적용 (서로의 한도를 깎지 않음)
   const handleLibrary = createLibraryHandler({ fetchSource: opts && opts.fetchSource, sendJson, clientIp, createRateLimiter });
   const handleInsight = createAnalyzeHandler({
-    analyze: opts && 'insight' in opts ? opts.insight : claude && ((args) => insightWithClaude(args, traced('insight'))),
-    toBody: (insight) => insight,
+    analyze: withTrace(opts && 'insight' in opts ? opts.insight : claude && ((args) => insightWithClaude(args, traced('insight')))),
+    toBody: ({ value, traceId, observationId }) => ({ ...value, traceId, observationId }),
     readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
   });
   // 장면 그림 설명: 'AI 장면 이미지'를 켰을 때 대본마다 한 번 (한도는 따로)
@@ -423,10 +428,15 @@ function createServer(opts) {
     parse: parseSceneArtRequest,
     readBody, sendJson, clientIp, createRateLimiter, createDailyBudget,
   });
+  // 사용자 피드백 → Langfuse 점수 (키가 없으면 204로 무시)
+  const handleFeedback = createFeedbackHandler({
+    scorer: opts && 'scorer' in opts ? opts.scorer : createLangfuseScorer(),
+    readBody, sendJson, send, clientIp, createRateLimiter,
+  });
   const server = http.createServer((req, res) => {
     // 요청 하나의 예상 못 한 오류가 프로세스 전체를 멈추지 않게 여기서 받음
     Promise.resolve()
-      .then(() => route({ handleStt, handleTts, handleAnalyze, handleInsight, handleSceneArt, handleLibrary }, req, res))
+      .then(() => route({ handleStt, handleTts, handleAnalyze, handleInsight, handleSceneArt, handleLibrary, handleFeedback }, req, res))
       .catch((err) => {
         console.error('[server]', err && err.stack ? err.stack : err);
         if (!res.headersSent) send(res, 500, '');

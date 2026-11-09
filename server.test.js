@@ -8,7 +8,8 @@ const { encodeWav } = require('./audiokit.js');
 const wavOf = (seconds, rate = 16000) => Buffer.from(encodeWav(new Float32Array(Math.round(seconds * rate)), rate));
 
 async function withServer(opts, fn) {
-  const server = createServer(opts);
+  // .env에 실제 Langfuse 키가 있어도 테스트는 Langfuse에 보내지 않음 (테스트가 따로 넘기면 그것을 씀)
+  const server = createServer({ langfuse: null, scorer: null, ...opts });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
   try { await fn(base); } finally { server.close(); }
@@ -415,4 +416,58 @@ test('long lines can be recorded for up to 55 seconds', async () => {
   });
   assert.ok(got.seconds > 39);
   assert.strictEqual(MAX_AUDIO_SECONDS, 55);
+});
+
+// ---------- Langfuse traceId · 피드백 ----------
+const TRACE = 'abcdef0123456789abcdef0123456789';
+const jsonPost = (base, path, body) => fetch(`${base}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+// 가짜 Claude + 가짜 Langfuse: generation마다 TRACE를 traceId로 돌려줌
+function fakeClaudeWithTracing(answer) {
+  const generations = [];
+  const claude = { beta: { messages: { create: async () => ({ model: 'm', stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(answer) }], usage: {} }) } } };
+  const langfuse = {
+    version: 'abc1234',
+    startObservation: (name, attrs) => { generations.push({ name, attrs }); return { traceId: TRACE, id: '0123456789abcdef', update() {}, end() {} }; },
+    flush: async () => {},
+  };
+  return { claude, langfuse, generations };
+}
+
+test('the analyze answer carries the Langfuse trace id of its Claude call', async () => {
+  const character = { name: '민수', gender: 'male', age: '20대', personality: 'p', speech: 's', voice: 'ko-KR-Chirp3-HD-Charon', rate: 1, reason: 'r', look: 'short hair' };
+  const { claude, langfuse, generations } = fakeClaudeWithTracing({ characters: [character] });
+  await withServer({ claude, langfuse }, async (base) => {
+    const body = await (await jsonPost(base, '/api/analyze', { script: '민수: 안녕', characters: ['민수'] })).json();
+    assert.strictEqual(body.traceId, TRACE);
+    assert.strictEqual(body.observationId, '0123456789abcdef');
+    assert.strictEqual(body.characters[0].name, '민수');
+  });
+  assert.strictEqual(generations[0].name, 'claude-analyze');
+  assert.strictEqual(generations[0].attrs.version, 'abc1234');
+});
+
+test('without Langfuse the analyze and insight answers have a null trace id', async () => {
+  const insight = { work: { superObjective: 'x' }, characters: [], relationships: [] };
+  await withServer({ analyze: async () => [], insight: async () => insight, langfuse: null }, async (base) => {
+    const a = await (await jsonPost(base, '/api/analyze', { script: '민수: 안녕', characters: ['민수'] })).json();
+    assert.deepStrictEqual(a, { characters: [], traceId: null, observationId: null });
+    const i = await (await jsonPost(base, '/api/insight', { script: '민수: 안녕', characters: ['민수'] })).json();
+    assert.deepStrictEqual(i, { ...insight, traceId: null, observationId: null });
+  });
+});
+
+test('feedback is scored in Langfuse, and ignored with 204 when Langfuse is off', async () => {
+  const scores = [];
+  const scorer = { score: (s) => scores.push(s), flush: async () => {} };
+  await withServer({ scorer }, async (base) => {
+    const res = await jsonPost(base, '/api/feedback', { traceId: TRACE, name: 'user-feedback', value: 0 });
+    assert.strictEqual(res.status, 204);
+    const bad = await jsonPost(base, '/api/feedback', { traceId: TRACE, name: 'other', value: 1 });
+    assert.strictEqual(bad.status, 400);
+  });
+  assert.deepStrictEqual(scores, [{ id: `${TRACE}-user-feedback`, traceId: TRACE, name: 'user-feedback', value: 0, dataType: 'BOOLEAN' }]);
+  await withServer({ scorer: null }, async (base) => {
+    assert.strictEqual((await jsonPost(base, '/api/feedback', { traceId: TRACE, name: 'user-feedback', value: 1 })).status, 204);
+  });
 });

@@ -160,3 +160,28 @@ test('each character gets a short English look for the avatar, without Korean te
   const { system } = buildPrompt(SCRIPT, ['민수']);
   assert.match(system, /look/);
 });
+
+// MQ08: 높이가 거의 같은 목소리를 벌림
+test('voices that sound almost the same are spread apart, keeping the AI pick when it is distinct', () => {
+  const { spreadVoices, MIN_PITCH_GAP } = require('./analyze.js');
+  const VC = require('./voicecatalog.js');
+  const id = (name) => `ko-KR-Chirp3-HD-${name}`;
+  // 예시 대본에서 사용자가 바꾼 사례: 박 사장 133Hz · 민수 136Hz · 역무원 142Hz
+  const out = spreadVoices([
+    { name: '박 사장', voice: id('Umbriel') }, { name: '민수', voice: id('Enceladus') },
+    { name: '역무원', voice: id('Charon') }, { name: '지연', voice: id('Kore') },
+  ], 'ko');
+  assert.strictEqual(out[0].voice, id('Umbriel'));   // 먼저 나온 배역은 AI가 고른 그대로
+  assert.strictEqual(out[3].voice, id('Kore'));      // 여자 목소리는 겹치지 않으므로 그대로
+  const males = out.slice(0, 3).map((c) => VC.getVoice(c.voice).pitch);
+  for (let i = 0; i < males.length; i++) for (let j = i + 1; j < males.length; j++) assert.ok(Math.abs(males[i] - males[j]) >= MIN_PITCH_GAP, males.join(','));
+});
+
+test('when every voice of that gender is taken, the AI pick is kept', () => {
+  const { spreadVoices } = require('./analyze.js');
+  const many = Array.from({ length: 20 }, (_, i) => ({ name: `남${i}`, voice: 'ko-KR-Chirp3-HD-Charon' }));
+  const out = spreadVoices(many, 'ko');
+  assert.strictEqual(out.length, 20);
+  assert.ok(out.every((c) => c.voice.startsWith('ko-KR-Chirp3-HD-')));
+  assert.strictEqual(spreadVoices([{ name: 'x', voice: null }], 'ko')[0].voice, null);
+});

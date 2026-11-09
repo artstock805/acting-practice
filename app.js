@@ -25,7 +25,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v70';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v72';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -189,7 +189,8 @@
     const sameText = text === state.text;
     if (!sameText) sceneArtRequest = null;   // 대본이 바뀌면 장면 그림 설명을 새로 받음
     update({ text, items, cast, index: 0, results: {}, mergeDismissed: [], insight: sameText ? state.insight : null, scenePlaces: sameText ? state.scenePlaces : null, sceneArt: undefined,
-      lineStats: sameText ? state.lineStats || {} : {}, opts: sameText ? state.opts : { ...state.opts, range: 'all' }, aiPick: sameText ? state.aiPick : null });
+      lineStats: sameText ? state.lineStats || {} : {}, opts: sameText ? state.opts : { ...state.opts, range: 'all' }, aiPick: sameText ? state.aiPick : null,
+      aiTrace: sameText ? state.aiTrace : null, insightTrace: sameText ? state.insightTrace : null });
     renderCast();
     enableTabs();
     showView('cast');
@@ -268,6 +269,7 @@
     const chars = K.listCharacters(state.items);
     renderMergeSuggestions(chars);
     renderAiPick(chars);
+    renderFeedback('ai-feedback', state.aiTrace, voteCast);
     chars.forEach(({ name, lines }) => {
       const cfg = state.cast[name];
       const tr = document.createElement('tr');
@@ -351,8 +353,64 @@
   }
 
   function changeVoice(name, patch) {
+    noteVoiceChange(name, patch);
     setCast(name, patch);
     previewVoice(name);
+  }
+
+  // ---------- AI 분석 피드백 (Langfuse 점수) ----------
+  // 서버에 Langfuse가 켜져 있어 분석 결과에 traceId가 있을 때만 보냄. 서버가 받았으면 true (네트워크 오류·429 등은 false)
+  async function sendFeedback({ traceId, observationId }, name, value, comment) {
+    try {
+      const res = await fetch('/api/feedback', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+        body: JSON.stringify({ traceId, ...(observationId ? { observationId } : {}), name, value, ...(comment ? { comment } : {}) }),
+      });
+      return res.ok;
+    } catch (_) { return false; }
+  }
+
+  // 결과 아래 '도움이 됐나요? 👍 / 👎' (결과 하나에 한 번만, 보낸 뒤에는 고맙다는 말만. 못 보냈으면 다시 누를 수 있음)
+  function renderFeedback(boxId, trace, onVote, failed) {
+    const box = $(boxId);
+    box.textContent = '';
+    box.hidden = !(trace && trace.traceId);
+    if (box.hidden) return;
+    if (trace.vote === 0 || trace.vote === 1) {
+      box.textContent = trace.vote ? '👍 의견 고마워요!' : '👎 의견 고마워요. 더 나아지게 할게요.';
+      return;
+    }
+    const up = el('button', { className: 'ghost', textContent: '👍 좋아요' });
+    const down = el('button', { className: 'ghost', textContent: '👎 별로예요' });
+    up.onclick = () => { up.disabled = down.disabled = true; onVote(1); };
+    down.onclick = () => { up.disabled = down.disabled = true; onVote(0); };
+    box.append(failed ? '⚠ 의견을 보내지 못했어요. 잠시 뒤 다시 눌러 주세요. ' : '이 분석이 도움이 됐나요? ', up, down);
+  }
+
+  // 보내기에 성공했을 때만 '보냄'으로 저장 (실패하면 버튼을 다시 보여 줌)
+  async function vote(key, boxId, onVote, value) {
+    const t = state[key];
+    if (!t || t.vote === 0 || t.vote === 1) return;
+    const ok = await sendFeedback(t, 'user-feedback', value);
+    if (state[key] !== t) return;   // 그사이 새 분석으로 바뀌었으면 버림
+    if (ok) update({ [key]: { ...t, vote: value } });
+    renderFeedback(boxId, state[key], onVote, !ok);
+  }
+  const voteCast = (value) => vote('aiTrace', 'ai-feedback', voteCast, value);
+  const voteInsight = (value) => vote('insightTrace', 'insight-feedback', voteInsight, value);
+
+  // AI가 추천한 목소리를 다른 목소리로 바꾸면 알림 (같은 분석의 같은 배역은 한 번만, AI 추천이 없던 배역은 보내지 않음)
+  // 바로 '보냄'으로 표시해 겹쳐 보내지 않고, 못 보냈으면 표시를 되돌려 다음에 바꿀 때 다시 보냄
+  function noteVoiceChange(name, patch) {
+    const t = state.aiTrace;
+    if (!t || !('cloudVoice' in patch)) return;
+    const recommended = t.picks[name];
+    if (!recommended || patch.cloudVoice === recommended || t.changed.includes(name)) return;
+    update({ aiTrace: { ...t, changed: [...t.changed, name] } });
+    sendFeedback(t, 'voice-changed', 1, `${name}: ${recommended} → ${patch.cloudVoice || '이 기기 음성'}`).then((ok) => {
+      const now = state.aiTrace;
+      if (!ok && now && now.traceId === t.traceId) update({ aiTrace: { ...now, changed: now.changed.filter((n) => n !== name) } });
+    });
   }
 
   function previewVoice(name) {
@@ -433,13 +491,15 @@
       if (!res.ok) throw new Error(body.error || `분석 실패 (${res.status})`);
       if (state.text !== script) return;   // 기다리는 사이 다른 대본을 분석했으면 버림
       const cast = { ...state.cast };
+      const picks = {};   // AI가 추천한 목소리 (사용자가 바꾸면 피드백으로 보냄)
       body.characters.forEach((c) => {
         const { name: sent, voice, rate, ...profile } = c;
         const name = cast[sent] ? sent : names.find((n) => n.slice(0, 40) === sent);  // 서버는 긴 이름을 40자로 자름
         if (!name) return;
         cast[name] = { ...cast[name], profile, ...(voice ? { cloudVoice: voice, rateScale: rate, persona: 'ai' } : {}) };
+        if (voice) picks[name] = voice;
       });
-      update({ cast });
+      update({ cast, aiTrace: body.traceId ? { traceId: body.traceId, observationId: body.observationId || null, picks, vote: null, changed: [] } : null });
       renderCast();
       setAiStatus(`✅ ${body.characters.length}명의 배역을 분석해 목소리를 골랐어요. 🔊로 들어 보고 마음에 안 들면 바꾸세요.`);
     } catch (err) {
@@ -575,6 +635,7 @@
     const lineCounts = Object.fromEntries(K.listCharacters(state.items).map((c) => [c.name, c.lines]));
     insightSvg = IV.render($('insight-body'), state.insight, { lineCounts, mine: new Set(myNames()), onEdit: editInsight });
     $('insight-actions').hidden = !state.insight;
+    renderFeedback('insight-feedback', state.insight && state.insightTrace, voteInsight);
   }
 
   // 칸을 고치면 바로 저장 (화면은 다시 그리지 않아 글을 쓰는 중에 커서가 튀지 않음)
@@ -611,7 +672,8 @@
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `분석 실패 (${res.status})`);
       if (state.text !== script) throw new Error('분석하는 사이에 대본이 바뀌어 이 결과는 쓰지 않았어요. 다시 눌러 주세요.');
-      update({ insight: body });
+      const { traceId, observationId, ...insight } = body;   // traceId·observationId는 피드백용으로 따로 둠 (분석 내용에 섞지 않음)
+      update({ insight, insightTrace: traceId ? { traceId, observationId: observationId || null, vote: null } : null });
       renderInsight();
       const secs = Math.round((Date.now() - started) / 1000);
       setInsightStatus(`✅ ${secs}초 만에 작품 초목표, 배역 ${body.characters.length}명, 관계 ${body.relationships.length}개를 정리했어요. 칸을 눌러 직접 고칠 수 있어요.`);
