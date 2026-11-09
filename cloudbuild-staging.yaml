@@ -7,6 +7,10 @@ substitutions:
   _SERVICE: acting-practice
   _IMAGE: asia-northeast3-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/acting-practice
   _RUN_SA: acting-practice-run@${PROJECT_ID}.iam.gserviceaccount.com
+  # Langfuse 트레이스에 남길 버전 (release·version). 수동 실행에는 커밋 SHA가 없으므로 실행할 때 넘김:
+  #   --substitutions=_APP_VERSION=$(git rev-parse --short HEAD)
+  # 넘기지 않으면 빌드 ID로 대신함 (어느 빌드인지는 구분됨)
+  _APP_VERSION: staging-${BUILD_ID}
 
 steps:
   - id: test
@@ -35,7 +39,10 @@ steps:
       - --memory=256Mi
       - --max-instances=3
       - --concurrency=20
-      - --set-secrets=ANTHROPIC_API_KEY=anthropic-api-key:latest
+      # Claude 키 + Langfuse 키 (값은 Secret Manager에만. 시크릿을 만들고 실행 서비스 계정에 읽기 권한을 줘야 배포됨, README 참고)
+      - --set-secrets=ANTHROPIC_API_KEY=anthropic-api-key:latest,LANGFUSE_PUBLIC_KEY=langfuse-public-key:latest,LANGFUSE_SECRET_KEY=langfuse-secret-key:latest
+      # --update-env-vars는 기존 환경 변수를 지우지 않고 이 값만 더하거나 바꿈 (--set-env-vars는 전부 덮어씀)
+      - --update-env-vars=LANGFUSE_BASE_URL=https://us.cloud.langfuse.com,LANGFUSE_TRACING_ENVIRONMENT=staging,APP_VERSION=${_APP_VERSION}
       - --no-traffic   # 실제 사용자에게는 보내지 않음
       - --tag=staging  # 이 버전만 여는 주소: https://staging---<서비스 주소>
       - --quiet

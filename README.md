@@ -85,7 +85,7 @@ S#1. 카페 / 밤          ← 장면 제목
 ## 개인정보 · 저작권
 - 대본은 **내 브라우저 안에만 저장**됩니다. 녹음은 창을 닫으면 사라집니다.
 - **Google 목소리**로 읽을 때는 읽을 대사가 서버를 거쳐 Google Text-to-Speech로 전송됩니다. 서버는 합성한 소리를 잠시 메모리에만 두고(같은 대사 재사용) 저장하지 않습니다.
-- **대본 분석**(AI 배역 분석·목소리 추천이 자동으로 따라 돎) 또는 **🤖 AI로 초목표·관계도 그리기**를 눌렀을 때만 대본 전체가 서버를 거쳐 Claude(Anthropic)로 전송됩니다. 서버는 대본을 저장하지 않습니다. 단, 운영자가 Langfuse 점검을 켠 서버라면 그 요청(대본 포함)과 Claude의 답이 Langfuse에 기록됩니다.
+- **대본 분석**(AI 배역 분석·목소리 추천이 자동으로 따라 돎) 또는 **🤖 AI로 초목표·관계도 그리기**를 눌렀을 때만 대본 전체가 서버를 거쳐 Claude(Anthropic)로 전송됩니다. 서버는 대본을 저장하지 않습니다. 단, 운영자가 Langfuse 점검을 켠 서버라면 그 요청(대본 포함)과 Claude의 답이 Langfuse에 기록됩니다. 그런 서버에서는 분석 결과에 누른 👍/👎와, AI가 추천한 목소리를 바꾼 사실(배역 이름과 목소리)도 그 기록에 피드백 점수로 남습니다.
 - Cloud Run 판을 휴대폰에서 녹음을 켜고 쓰면, 내 대사 녹음이 채점을 위해 서버를 거쳐 Google Speech-to-Text로 전송됩니다. 서버는 녹음을 저장하지 않습니다. (PC와 휴대폰 내장 음성 인식도 원래 구글·애플·MS 음성 서비스로 소리를 보냅니다.)
 - **AI 장면 이미지** 옵션을 켰을 때만 장면 제목이 외부 이미지 서비스(Pollinations)로 전송됩니다(기본 꺼짐).
 - 기성 대본을 개인 연습용으로 쓰는 것은 사적 이용 범위지만, **대본을 앱에 넣어 배포하거나 공유하지 마세요.** 들어 있는 예시 대본은 이 앱을 위해 새로 쓴 것입니다.
@@ -128,6 +128,41 @@ Langfuse가 느리거나 멈춰도 답은 늦어야 2초 늦게 나갑니다. �
 3. `npm run dev`로 서버를 띄우고(http://localhost:8080) 배역 분석이나 장면 그림을 한 번 돌립니다.
 4. Langfuse 화면의 Tracing에서 `claude-…` 기록을 엽니다. 환경 이름은 `local`입니다.
 
-운영(Cloud Run)에서 켜려면 Secret Manager에 `langfuse-public-key`와 `langfuse-secret-key`를 만들고, 배포 설정에 그 두 비밀값을 연결해야 합니다. 아직 연결하지 않았습니다.
+**버전**
+기록마다 어느 코드가 답했는지 남깁니다. 값은 환경 변수 `APP_VERSION`이고, 없으면 `local`입니다.
+- 트레이스의 **Release**: Langfuse 트레이스 목록에서 Release로 거를 수 있습니다.
+- 각 `claude-…` 기록의 **Version**: 관측(Observations) 목록에서 Version으로 거를 수 있습니다.
+
+staging 배포는 실행할 때 넘긴 커밋 SHA를 씁니다(아래 실행 명령 참고). 넘기지 않으면 `staging-<빌드 ID>`가 남습니다.
+
+**사용자 피드백 점수**
+배역 분석과 초목표 분석은 응답에 그 호출의 `traceId`를 함께 보냅니다(Langfuse가 꺼져 있으면 `null`). 앱은 이 값으로 `POST /api/feedback`을 불러 그 트레이스에 점수(Score)를 붙입니다.
+
+| 점수 이름 | 값 (BOOLEAN) | 언제 |
+|---|---|---|
+| `user-feedback` | 1 좋아요 / 0 별로예요 | 배역 분석·초목표 분석 결과 아래 버튼. 결과 하나에 한 번 |
+| `voice-changed` | 1 | AI가 추천한 목소리를 사용자가 다른 목소리로 바꿀 때. 같은 분석의 같은 배역은 한 번, comment에 `배역: 추천 → 바꾼 목소리` |
+
+Langfuse 키가 없으면 버튼이 보이지 않고 `/api/feedback`은 204로 무시합니다. Langfuse에 보내다 실패해도 화면은 막히지 않습니다. Langfuse 화면의 Scores에서 이름별로 모아 보거나, 트레이스를 열어 붙은 점수를 볼 수 있습니다.
+
+**staging(시험 배포)에서 켜기**
+`cloudbuild-staging.yaml`에만 연결해 두었습니다. 운영 배포(`cloudbuild.yaml`)는 아직 Langfuse 없이 나갑니다. staging은 `LANGFUSE_BASE_URL=https://us.cloud.langfuse.com`, 환경 이름 `staging`으로 기록합니다.
+
+1. Secret Manager에 `langfuse-public-key`와 `langfuse-secret-key`를 만들고 키 값을 넣습니다(콘솔에서 직접. 값은 코드나 채팅에 붙이지 않습니다).
+2. Cloud Run 실행 서비스 계정에 두 시크릿을 읽을 권한을 줍니다.
+   ```bash
+   gcloud secrets add-iam-policy-binding langfuse-public-key --project=acting-practice \
+     --member=serviceAccount:acting-practice-run@acting-practice.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor
+   gcloud secrets add-iam-policy-binding langfuse-secret-key --project=acting-practice \
+     --member=serviceAccount:acting-practice-run@acting-practice.iam.gserviceaccount.com --role=roles/secretmanager.secretAccessor
+   ```
+3. 시험 배포를 실행합니다. 커밋 SHA를 버전으로 넘깁니다.
+   ```bash
+   gcloud builds submit --config cloudbuild-staging.yaml --project=acting-practice --region=asia-northeast3 \
+     --substitutions=_APP_VERSION=$(git rev-parse --short HEAD) .
+   ```
+4. `https://staging---<서비스 주소>`에서 대본 분석을 한 번 하고 👍/👎를 누른 뒤, Langfuse에서 Environment `staging`으로 거릅니다. 트레이스의 Release, `claude-analyze`의 Version, 붙은 `user-feedback` 점수를 확인합니다.
+
+주의: staging과 운영은 같은 Cloud Run 서비스입니다. staging 배포가 더한 환경 변수(`LANGFUSE_BASE_URL`, `LANGFUSE_TRACING_ENVIRONMENT=staging`, `APP_VERSION`)는 다음 운영 배포에도 남습니다. 운영 배포는 시크릿을 `ANTHROPIC_API_KEY`만으로 다시 정하므로 Langfuse 키가 빠져 기록은 꺼진 채로 나갑니다. 나중에 운영에도 Langfuse를 켤 때는 `cloudbuild.yaml`에서 이 세 값을 운영에 맞게 정해 주세요.
 
 MIT License

@@ -332,6 +332,11 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
 .format-help b { color: var(--paper); font-weight: 600; }
 .source-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
 .source-grid > * { text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* AI 분석 결과 아래 '도움이 됐나요? 👍 / 👎' */
+.feedback-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
+.feedback-bar[hidden] { display: none; }
+.feedback-bar button { padding: 6px 14px; }
+
 /* 저장한 대본 버전 */
 .versions-btn { width: 100%; margin-top: 8px; }
 .dialog-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }

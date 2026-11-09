@@ -1,7 +1,7 @@
 // 실행: node --test
 const test = require('node:test');
 const assert = require('node:assert');
-const { traceClaude, createLangfuseTracing } = require('./langfuse.js');
+const { traceClaude, createLangfuseTracing, createLangfuseScorer, captureTraceId, appVersion } = require('./langfuse.js');
 
 // 가짜 Langfuse: 기록된 generation을 모아 둠
 function fakeTracing() {
@@ -102,4 +102,44 @@ test('a Langfuse outage never breaks the Claude answer', async () => {
     assert.strictEqual(await traced.beta.messages.create(REQUEST), RESPONSE);
   } finally { console.error = original; }
   assert.match(errors.join('\n'), /langfuse down/);
+});
+
+test('the deployed version is the commit Cloud Build passes in, or local', () => {
+  assert.strictEqual(appVersion({ APP_VERSION: ' 91d0f4e \n' }), '91d0f4e');
+  assert.strictEqual(appVersion({}), 'local');
+  assert.strictEqual(appVersion({ APP_VERSION: '  ' }), 'local');
+});
+
+test('every Claude generation carries the deployed version', async () => {
+  const tracing = { ...fakeTracing(), version: 'a1b2c3d' };
+  await traceClaude(fakeClient(() => RESPONSE), 'analyze', tracing).beta.messages.create(REQUEST);
+  assert.strictEqual(tracing.generations[0].attrs.version, 'a1b2c3d');
+});
+
+// startObservation이 돌려준 generation의 traceId를 그 요청의 응답에 실어 보냄
+function tracingWithIds() {
+  const t = fakeTracing();
+  let n = 0;
+  const start = t.startObservation;
+  t.startObservation = (...args) => ({ ...start(...args), traceId: String(++n).padStart(32, '0') });
+  return t;
+}
+
+test('the trace id of the Claude call is handed back with the answer', async () => {
+  const traced = traceClaude(fakeClient(() => RESPONSE), 'analyze', tracingWithIds());
+  const analyze = captureTraceId(async (script) => { await traced.beta.messages.create(REQUEST); return `분석:${script}`; });
+  const [a, b] = await Promise.all([analyze('가'), analyze('나')]);   // 동시에 들어온 요청도 서로 섞이지 않음
+  assert.strictEqual(a.value, '분석:가');
+  assert.strictEqual(b.value, '분석:나');
+  assert.notStrictEqual(a.traceId, b.traceId);
+  assert.match(a.traceId, /^0+[12]$/);
+});
+
+test('without Langfuse the trace id is null and nothing is scored', async () => {
+  const analyze = captureTraceId(async () => traceClaude(fakeClient(() => RESPONSE), 'analyze', null).beta.messages.create(REQUEST));
+  const out = await analyze();
+  assert.strictEqual(out.value, RESPONSE);
+  assert.strictEqual(out.traceId, null);
+  assert.strictEqual(createLangfuseScorer({}), null);
+  assert.strictEqual(createLangfuseScorer({ LANGFUSE_PUBLIC_KEY: 'pk' }), null);
 });

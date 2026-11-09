@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.132.1",
+    "@langfuse/client": "6.1.0",
     "@langfuse/otel": "6.1.0",
     "@langfuse/tracing": "6.1.0",
     "@opentelemetry/exporter-trace-otlp-http": "0.223.0",
