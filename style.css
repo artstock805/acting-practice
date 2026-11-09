@@ -332,6 +332,19 @@ body.practice-mode .transcript { flex: 1 1 0; min-height: 140px; max-height: non
 .format-help b { color: var(--paper); font-weight: 600; }
 .source-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
 .source-grid > * { text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 저장한 대본 버전 */
+.versions-btn { width: 100%; margin-top: 8px; }
+.dialog-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.versions-dialog { width: min(560px, calc(100% - 32px)); max-width: none; text-align: left; }
+.versions-dialog h2 { text-align: center; }
+.versions-list { max-height: 55vh; overflow-y: auto; display: grid; gap: 8px; margin-bottom: 14px; }
+.version-item { display: flex; gap: 12px; align-items: center; padding: 10px 12px; background: var(--stage); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.version-item.current { border-color: var(--spot); }
+.version-info { flex: 1; min-width: 0; }
+.version-info .note { margin: 2px 0 0; }
+.version-first { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.version-actions { display: grid; gap: 6px; flex: none; }
+.version-actions button { padding: 6px 14px; }
 .lang-pick { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 0.9rem; }
 .fine-print { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--line); }
 .fine-print .note { margin: 6px 0; }
