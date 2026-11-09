@@ -35,7 +35,9 @@ steps:
       - --memory=256Mi
       - --max-instances=3
       - --concurrency=20
-      - --set-secrets=ANTHROPIC_API_KEY=anthropic-api-key:latest
+      # 시험 사용자들의 Claude 호출을 Langfuse(US)에 'staging' 환경으로 기록 (운영 cloudbuild.yaml에는 연결하지 않음)
+      - --set-secrets=ANTHROPIC_API_KEY=anthropic-api-key:latest,LANGFUSE_PUBLIC_KEY=langfuse-public-key:latest,LANGFUSE_SECRET_KEY=langfuse-secret-key:latest
+      - --set-env-vars=LANGFUSE_BASE_URL=https://us.cloud.langfuse.com,LANGFUSE_TRACING_ENVIRONMENT=staging
       - --no-traffic   # 실제 사용자에게는 보내지 않음
       - --tag=staging  # 이 버전만 여는 주소: https://staging---<서비스 주소>
       - --quiet
