@@ -48,6 +48,7 @@
         <button id="btn-library" class="ghost">📚 무료 대본 서재</button>
         <label class="ghost file-btn" title="txt · PDF · Word(docx) · 한글(hwp·hwpx) · odt · rtf">📄 대본 파일 열기<input id="file-input" type="file" hidden></label>
       </div>
+      <button id="btn-versions" class="ghost versions-btn" hidden>📂 저장한 버전</button>
       <div class="row script-actions">
         <label class="lang-pick">대본 언어
           <select id="opt-lang">
@@ -192,6 +193,22 @@
   <dialog id="library-dialog" class="phone-dialog library-dialog"></dialog>
   <dialog id="stats-dialog" class="phone-dialog stats-dialog"></dialog>
   <dialog id="scene-dialog" class="phone-dialog scene-dialog"></dialog>
+  <!-- 고친 대본으로 '대본 분석'을 누르면 새 버전으로 저장할지 물어봄 -->
+  <dialog id="save-version-dialog" class="phone-dialog">
+    <h2>다른 버전으로 저장하시겠습니까?</h2>
+    <p class="note">고치기 전 대본은 그대로 두고, 고친 대본을 새 버전으로 저장해요. 저장한 버전은 📂 저장한 버전에서 다시 불러올 수 있어요.</p>
+    <form method="dialog" class="dialog-actions">
+      <button value="cancel" class="ghost">계속 편집</button>
+      <button value="skip" class="ghost">저장 안 함</button>
+      <button value="save" class="primary">새 버전으로 저장</button>
+    </form>
+  </dialog>
+  <dialog id="versions-dialog" class="phone-dialog versions-dialog">
+    <h2>📂 저장한 버전</h2>
+    <p class="note">고쳐서 저장한 대본이에요. 불러온 뒤 '대본 분석'을 누르면 그 버전으로 연습해요.</p>
+    <div id="versions-list" class="versions-list"></div>
+    <form method="dialog"><button class="primary">닫기</button></form>
+  </dialog>
 
   <dialog id="phone-dialog" class="phone-dialog">
     <h2>📱 휴대폰에서 열기</h2>
@@ -225,6 +242,7 @@
   <script src="statsview.js"></script>
   <script src="avatars.js"></script>
   <script src="portraitqueue.js"></script>
+  <script src="scriptversions.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -7,7 +7,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY server.js tts.js analyze.js insight.js sceneart.js langfuse.js library.js voicecatalog.js ./
 COPY index.html android.html style.css manifest.webmanifest sw.js \
-     parser.js sample.js fileimport.js voicecatalog.js voices.js cloudtts.js speech.js recorder.js audiokit.js cloudstt.js insightview.js libraryview.js practiceplan.js practicelog.js statsview.js avatars.js portraitqueue.js app.js \
+     parser.js sample.js fileimport.js voicecatalog.js voices.js cloudtts.js speech.js recorder.js audiokit.js cloudstt.js insightview.js libraryview.js practiceplan.js practicelog.js statsview.js avatars.js portraitqueue.js scriptversions.js app.js \
      public/
 COPY assets/*.png assets/*.ico public/assets/
 COPY vendor/qrcode.js vendor/fflate.js public/vendor/

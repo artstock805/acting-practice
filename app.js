@@ -15,6 +15,7 @@
   const PP = window.PracticePlan;
   const SV = window.StatsView;
   const AV = window.Avatars;
+  const VS = window.ScriptVersions;
   const PQ = window.PortraitQueue.createPortraitQueue();  // 무료 그림 서비스 한도(45초에 1장) 때문에 한 장씩 받고 이 기기에 저장
   const LOG = window.PracticeLog.createLog();
   const NARRATOR_VOICE = { voiceURI: '', pitch: 1, rateScale: 0.95 };
@@ -24,7 +25,7 @@
   // 음성 인식은 대사마다 그 줄의 글자로 언어를 정함 (한국어 대본 속 영어 대사, 그 반대도 제대로 알아들음)
   const lineLocale = (item) => VC.localeOf(K.lineLanguage(speechOf(item), scriptLang()));
   const NARRATOR = '__narrator__';
-  const APP_VERSION = 'v69';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
+  const APP_VERSION = 'v70';  // 화면 아래에 표시 (휴대폰이 새 버전을 받았는지 확인용). sw.js의 CACHE 번호와 같이 올림
   const DEFAULT_KEEP_GOING = 10;     // 계속 진행 기준(%): 인식률이 이보다 높으면 통과 기준 미달이어도 다음 대사로 진행
   const KEEP_GOING_PAUSE_MS = 1800;  // 넘어가기 전에 점수·틀린 곳을 보여 주는 시간
   const POST_SPEECH_GAP_MS = 350;  // 상대 대사가 끝나고 내 대사를 듣기 시작하기까지 쉬는 시간
@@ -69,8 +70,103 @@
   }
 
   // ---------- 1. 대본 ----------
+  // 대본 버전: loadedText는 칸에 대본을 마지막으로 불러온 때의 글(저장할 때 '원본'), editBase는 마지막으로 묻거나 분석한 때의 글.
+  // 칸의 글이 editBase와 다르면(고쳤으면) 분석 전에 새 버전으로 저장할지 물어봄
+  let storage = null;
+  try { storage = window.localStorage; } catch (_) { /* 저장 불가 브라우저: 버전 저장도 못 함 */ }
+  const versionStore = VS.createStore(storage);
+  let versions = versionStore.load();
+  let editBase = '';
+  let loadedText = '';
+  function fillScript(text) {
+    $('script-input').value = text;
+    editBase = loadedText = $('script-input').value;   // 칸이 줄바꿈(CRLF)을 바꿔 담으므로 칸의 값으로 비교
+  }
+  const hasUnsavedEdits = () => { const now = $('script-input').value; return !!now.trim() && now !== editBase; };
+
+  function askSaveVersion(text) {
+    const dialog = $('save-version-dialog');
+    dialog.returnValue = '';
+    dialog.onclose = () => {
+      const choice = dialog.returnValue;   // Esc로 닫으면 ''(계속 편집과 같음)
+      if (choice !== 'save' && choice !== 'skip') { $('script-input').focus(); return; }
+      // 저장에 실패하면 대본 탭에 남아 알림 (그대로 넘어가면 저장된 줄 알게 됨)
+      if (choice === 'save' && !saveVersion(loadedText, text)) return;
+      editBase = text;
+      parseAndGo();
+    };
+    dialog.showModal();
+  }
+
+  // 저장했으면(이미 저장된 글이어도) true
+  function saveVersion(before, after) {
+    const next = VS.addVersion(versions, { before, after }, new Date());
+    if (next === versions) return true;
+    if (!versionStore.save(next)) {
+      alert('브라우저 저장 공간이 부족해 버전을 저장하지 못했어요. 📂 저장한 버전에서 오래된 버전을 지운 뒤 다시 해 주세요.');
+      return false;
+    }
+    versions = next;
+    renderVersionsButton();
+    setImportStatus('💾 고친 대본을 새 버전으로 저장했어요. 📂 저장한 버전에서 볼 수 있어요.');
+    return true;
+  }
+
+  function renderVersionsButton() {
+    const btn = $('btn-versions');
+    btn.hidden = !versions.length;
+    btn.textContent = `📂 저장한 버전 (${versions.length})`;
+  }
+
+  // 저장한 버전 목록 (최근 것부터): 불러오기·지우기 (지울 때는 한 번 더 물어봄)
+  function openVersions() {
+    renderVersionList();
+    if (!$('versions-dialog').open) $('versions-dialog').showModal();
+  }
+  function renderVersionList() {
+    const list = $('versions-list');
+    const current = $('script-input').value;
+    list.textContent = '';
+    if (!versions.length) { list.append(el('p', { className: 'note', textContent: '아직 저장한 버전이 없어요.' })); return; }
+    [...versions].reverse().forEach((v) => {
+      const isCurrent = v.text === current;
+      const firstLine = v.text.split('\n').find((l) => l.trim()) || '';
+      const info = el('div', { className: 'version-info' });
+      info.append(
+        el('b', { textContent: v.label + (isCurrent ? '  · 지금 대본' : '') }),
+        el('p', { className: 'note version-first', textContent: firstLine.trim() }),
+        el('p', { className: 'note', textContent: `${v.text.split('\n').length}줄` }),
+      );
+      const load = el('button', { className: 'primary', textContent: '불러오기' });
+      load.onclick = () => {
+        if (hasUnsavedEdits() && !confirm('지금 고친 내용은 저장하지 않으면 사라져요. 그래도 이 버전을 불러올까요?')) return;
+        fillScript(v.text);
+        showDetectedLanguage();
+        setImportStatus(`✅ 📂 「${v.label}」을(를) 불러왔어요. 내용을 확인하고 '대본 분석'을 누르세요.`);
+        $('versions-dialog').close();
+      };
+      const del = el('button', { className: 'ghost', textContent: '지우기' });
+      del.onclick = () => {
+        if (!confirm(`「${v.label}」을(를) 지우면 되돌릴 수 없어요. 지울까요?`)) return;
+        const next = VS.removeVersion(versions, v.id);
+        if (!versionStore.save(next)) { alert('지우지 못했어요. 브라우저 저장 공간을 확인해 주세요.'); return; }
+        versions = next;
+        renderVersionsButton();
+        renderVersionList();
+      };
+      const actions = el('div', { className: 'version-actions' });
+      actions.append(load, del);
+      const item = el('div', { className: 'version-item' + (isCurrent ? ' current' : '') });
+      item.append(info, actions);
+      list.append(item);
+    });
+  }
+
   function parseAndGo() {
     const text = $('script-input').value;
+    // 불러온 대본을 고쳤으면 먼저 새 버전으로 저장할지 물어봄 (빈 칸에 처음 붙여 넣은 대본은 고친 게 아니므로 묻지 않음)
+    if (editBase.trim() && text.trim() && text !== editBase) { askSaveVersion(text); return; }
+    editBase = text;
     const choice = $('opt-lang').value;
     const lang = choice === 'auto' ? K.detectLanguage(text) : choice;
     update({ lang, langChoice: choice });
@@ -1336,7 +1432,7 @@
     setImportStatus(`📄 ${file.name} 읽는 중…`);
     try {
       const { text } = await FI.extractScriptText({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
-      $('script-input').value = text;
+      fillScript(text);
       const detected = K.detectLanguage(text) === 'en' ? ' (영어 대본으로 보여요)' : '';
       setImportStatus(`✅ ${file.name}에서 ${text.split('\n').length}줄을 불러왔어요${detected}. 내용을 확인하고 '대본 분석'을 누르세요.`);
     } catch (err) {
@@ -1393,9 +1489,10 @@
   function bindEvents() {
     const openView = { practice: goPractice, insight: goInsight };
     document.querySelectorAll('.tab').forEach((t) => { t.onclick = () => (openView[t.dataset.view] || (() => showView(t.dataset.view)))(); });
-    $('btn-sample').onclick = () => { $('script-input').value = window.SAMPLE_SCRIPT; showDetectedLanguage(); };
+    $('btn-sample').onclick = () => { fillScript(window.SAMPLE_SCRIPT); showDetectedLanguage(); };
     $('btn-library').onclick = openLibrary;
-    $('btn-sample-en').onclick = () => { $('script-input').value = window.SAMPLE_SCRIPT_EN; showDetectedLanguage(); };
+    $('btn-sample-en').onclick = () => { fillScript(window.SAMPLE_SCRIPT_EN); showDetectedLanguage(); };
+    $('btn-versions').onclick = openVersions;
     $('opt-lang').onchange = showDetectedLanguage;
     $('script-input').addEventListener('input', showDetectedLanguage);
     bindFilePicker();
@@ -1525,7 +1622,7 @@
 
   // 대본 언어는 '자동 감지'로 둠 (영어 작품을 불러온 뒤 한국어 대본을 넣어도 영어로 굳지 않게)
   function pickLibraryScript({ text, title, custom }) {
-    $('script-input').value = text;
+    fillScript(text);
     $('opt-lang').value = 'auto';
     showDetectedLanguage();
     setImportStatus(`✅ 「${title}」을(를) 불러왔어요${custom ? '' : ' (공개 저작물)'}. 내용을 확인하고 '대본 분석'을 누르세요.`);
@@ -1545,7 +1642,8 @@
   function init() {
     avatarStage = AV.createStage($('stage'), { getLevel: () => (CT.level ? CT.level() : null) });
     PQ.onReady(onPortraitReady);
-    $('script-input').value = state.text || '';
+    fillScript(state.text || '');
+    renderVersionsButton();
     $('opt-lang').value = state.langChoice || 'auto';
     S.setLanguage(speechLocale());
     showDetectedLanguage();
