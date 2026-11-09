@@ -69,11 +69,31 @@ function buildPrompt(script, characters, lang = 'ko') {
   return { system, user };
 }
 
+// 같은 성별 목소리끼리 평균 음높이가 이보다 가까우면 듣는 사람이 구별하기 어려움 (MQ08: 사용자가 133·136·142Hz 남자 목소리를 벌려 바꿈)
+const MIN_PITCH_GAP = 10;
+
+// 앞에 나온 배역의 목소리와 높이가 거의 같으면, 같은 성별에서 겹치지 않는 가장 가까운 높이의 목소리로 바꿈
+// (AI가 고른 높낮이 의도를 최대한 지키고, 겹치지 않는 목소리가 없으면 그대로 둠)
+function spreadVoices(cast, lang = 'ko') {
+  const pool = castable(lang);
+  const used = [];
+  return cast.map((c) => {
+    const chosen = c.voice && pool.find((v) => v.id === c.voice);
+    if (!chosen) return c;
+    const tooClose = (v) => used.some((u) => u.gender === v.gender && Math.abs(u.pitch - v.pitch) < MIN_PITCH_GAP);
+    const pick = !tooClose(chosen) ? chosen
+      : pool.filter((v) => v.gender === chosen.gender && !tooClose(v))
+        .sort((a, b) => Math.abs(a.pitch - chosen.pitch) - Math.abs(b.pitch - chosen.pitch))[0] || chosen;
+    used.push(pick);
+    return pick === chosen ? c : { ...c, voice: pick.id };
+  });
+}
+
 // Claude 답에서 요청한 배역·목록에 있는 목소리만 남기고 속도는 허용 범위로 맞춤
 function normalizeCasting(list, characters, lang = 'ko') {
   const wanted = new Set(characters);
   const text = (v) => (typeof v === 'string' ? v.slice(0, 300) : '');
-  return (Array.isArray(list) ? list : [])
+  return spreadVoices((Array.isArray(list) ? list : [])
     .filter((c) => c && wanted.has(c.name))
     .map((c) => ({
       name: c.name,
@@ -85,7 +105,7 @@ function normalizeCasting(list, characters, lang = 'ko') {
       rate: Math.round(clampRate(c.rate) * 100) / 100,
       reason: text(c.reason),
       look: text(c.look).replace(/[가-힣]+\s*/g, '').trim(),   // 그림 서비스로 가는 영어 묘사: 한글은 뺌
-    }));
+    })), lang);
 }
 
 async function analyzeWithClaude({ script, characters, lang = 'ko' }, client) {
@@ -166,4 +186,4 @@ function createAnalyzeHandler({ analyze, readBody, sendJson, clientIp, createRat
   };
 }
 
-module.exports = { ENGLISH_NOTE, createAnalyzeHandler, createClaudeClient, createClaudeAnalyzer, MODEL, analyzeWithClaude, buildPrompt, normalizeCasting, MAX_SCRIPT_CHARS, MAX_CHARACTERS, TOO_LONG };
+module.exports = { ENGLISH_NOTE, createAnalyzeHandler, createClaudeClient, createClaudeAnalyzer, MODEL, analyzeWithClaude, buildPrompt, normalizeCasting, spreadVoices, MIN_PITCH_GAP, MAX_SCRIPT_CHARS, MAX_CHARACTERS, TOO_LONG };
